@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Cozyverse Studio",
+  "version": "0.1.0",
+  "identifier": "com.wheelbarrowstudios.cozyversestudio",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1421",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Cozyverse Studio",
+        "width": 1540,
+        "height": 960,
+        "minWidth": 1180,
+        "minHeight": 760,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**/Cozyverses/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": ["icons/icon.ico"],
+    "shortDescription": "Create private-heaven digital art worlds",
+    "longDescription": "Cozyverse Studio is a local-first creator app for building small, immersive Cozyverse worlds — artwork, motion, audio, and interactive scenes.",
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    }
+  }
+}

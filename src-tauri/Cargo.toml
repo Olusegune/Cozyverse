@@ -1,0 +1,25 @@
+[package]
+name = "cozyverse-studio"
+version = "0.1.0"
+description = "Cozyverse Studio — local-first Cozyverse creator"
+authors = ["Wheelbarrow Studios"]
+edition = "2021"
+
+[lib]
+name = "cozyverse_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rfd = "0.15"
+keyring = { version = "3", features = ["windows-native"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+tokio = { version = "1", features = ["time", "process", "macros", "rt"] }
+tauri = { version = "2", features = ["protocol-asset"] }
+base64 = "0.22"
+zip = "2"
+walkdir = "2"

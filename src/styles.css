@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-base-950 text-slate-200 antialiased; font-family: "Plus Jakarta Sans", system-ui, sans-serif; }
+h1, h2, h3 { font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-weight: 700; }
+
+/* Modern slider — every <input type="range"> in the app renders through this, deliberately kept
+   genuinely circular (border-radius: 9999px) even though Tailwind's own rounded-full utility is
+   overridden to a sharp 4px elsewhere in this design system; a slider thumb is one of the few
+   elements that should stay a true pill/circle regardless. The Slider component (components/Slider.tsx)
+   sets the two-tone fill via inline `background`, computed from the current value — this stylesheet
+   only owns the track height and the thumb's shape/shadow/hover-grow. */
+input[type="range"].cvs-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  background: #3a363f;
+}
+input[type="range"].cvs-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #e0a034;
+  border: 2px solid #1a140a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 0 0 4px rgba(224, 160, 52, 0.18);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  margin-top: -5px;
+}
+input[type="range"].cvs-slider::-webkit-slider-thumb:hover,
+input[type="range"].cvs-slider::-webkit-slider-thumb:active {
+  transform: scale(1.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6), 0 0 0 6px rgba(224, 160, 52, 0.25);
+}
+input[type="range"].cvs-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: transparent;
+}
+input[type="range"].cvs-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+input[type="range"].cvs-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #e0a034;
+  border: 2px solid #1a140a;
+  cursor: pointer;
+}
+input[type="range"].cvs-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: #3a363f;
+}
