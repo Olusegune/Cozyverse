@@ -84,7 +84,7 @@ pub async fn decompose_runtime_status() -> RuntimeStatus {
             None => "full pipeline · no CUDA GPU (slow)".into(),
         }
     } else if lite_ready {
-        "quick pipeline (CPU)".into()
+        "CPU".into()
     } else {
         "not set up".into()
     };
@@ -276,9 +276,12 @@ async fn do_setup_lite(app: &AppHandle) -> Result<(), String> {
     .await?;
 
     emit(app, "models", "Fetching the detection model…", 90);
+    // set_classes() is what triggers ultralytics' one-time CLIP fetch + the
+    // text-encoder weight download, so warm that here (not just YOLO(...)) —
+    // otherwise the first real run stalls mid-decompose.
     let _ = Command::new(&py)
         .arg("-c")
-        .arg("from ultralytics import YOLO\nYOLO('yolov8s-worldv2.pt')\ntry:\n from rembg import new_session\n new_session('u2net')\nexcept Exception:\n pass\nprint('lite ready')")
+        .arg("from ultralytics import YOLO\nm = YOLO('yolov8s-worldv2.pt')\nm.set_classes(['sofa', 'lamp', 'table'])\ntry:\n from rembg import new_session\n new_session('u2net')\nexcept Exception:\n pass\nprint('lite ready')")
         .output()
         .await;
     Ok(())

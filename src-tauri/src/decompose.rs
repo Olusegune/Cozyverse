@@ -47,6 +47,12 @@ const STATE_VERSION: u32 = 1;
 /// polling is where the parallelism actually pays off, not submission.
 const MAX_INFLIGHT_SUBMISSIONS: usize = 6;
 
+/// Only one Python decomposition runs at a time. The GPU/CPU pipelines are
+/// heavy, and — more subtly — ultralytics/HF/CLIP all download weights into
+/// shared caches, so two concurrent first-runs corrupt each other's files
+/// (observed: CLIP ViT-B-32 SHA256 mismatch). Jobs queue instead.
+static PIPELINE_LOCK: Semaphore = Semaphore::const_new(1);
+
 const FAST_PATH_DEADLINE: Duration = Duration::from_secs(4 * 60);
 const QUALITY_PATH_DEADLINE: Duration = Duration::from_secs(8 * 60);
 const POLL_EVERY: Duration = Duration::from_secs(3);
@@ -920,6 +926,8 @@ async fn run_pipeline(
 ) -> Result<Vec<RawAsset>, String> {
     let script = resolve_script()?;
     let python = crate::decompose_setup::resolve_python();
+    // Serialize: one decomposition subprocess at a time (see PIPELINE_LOCK).
+    let _permit = PIPELINE_LOCK.acquire().await.map_err(|e| e.to_string())?;
 
     let mut cmd = tokio::process::Command::new(&python);
     cmd.arg(&script)
