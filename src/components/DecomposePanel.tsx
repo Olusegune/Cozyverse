@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, CheckCircle2, FolderOpen, Loader2, X, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  Boxes,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
+  Loader2,
+  X,
+  XCircle,
+} from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import {
   decomposeProviderKeys,
@@ -104,78 +114,97 @@ function ConfirmBlock({
   };
 
   return (
-    <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs">
-      <div className="flex items-start gap-2">
-        <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
-        <div>
-          Sends up to <b className="text-slate-200">{estimate}</b> paid 3D generation(s) —{" "}
-          {job.assets.length} object(s), Fast{quality ? " + Quality" : ""} path{quality ? "s" : ""}.
+    <div className="mt-2 rounded-md border border-base-600 bg-base-800/40 p-2.5 text-xs">
+      <div className="text-slate-300 font-medium">
+        {job.assets.length} object(s) found — pick a path
+      </div>
+
+      {/* ---- Image path -------------------------------------------------- */}
+      <div className="mt-2.5">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Image path — free
         </div>
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-400">
-        <span className="text-slate-500">Generate with:</span>
-        {keyed.map((p) => (
-          <label key={p} className="flex items-center gap-1.5 select-none capitalize">
-            <input type="checkbox" checked={chosen.includes(p)} onChange={() => toggle(p)} />
-            {p}
-          </label>
-        ))}
-        {keyed.length === 0 && (
-          <span className="text-red-400">No Tripo or Meshy key — add one in Settings.</span>
-        )}
-      </div>
-
-      <label
-        className={`mt-1.5 flex items-center gap-1.5 select-none ${
-          hasViews ? "text-slate-500" : "text-slate-600"
-        }`}
-        title={
-          hasViews
-            ? "Experimental: feeds the synthesized left/back/right views to each provider's multi-view endpoint alongside the Fast path. Doubles the spend."
-            : "This decomposition has no side views. Turn on “4 side views” above, then decompose again to enable the Quality path."
-        }
-      >
-        <input
-          type="checkbox"
-          checked={quality && hasViews}
-          disabled={!hasViews}
-          onChange={(e) => setQuality(e.target.checked)}
-        />
-        {hasViews
-          ? "Also run the 4-view Quality path — experimental (doubles the spend)"
-          : "Quality path needs side views (decompose again with “4 side views” on)"}
-      </label>
-
-      {err && <p className="mt-1.5 text-red-400">{err}</p>}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => void send()}
-          disabled={busy || chosen.length === 0}
-          className="px-3 py-1 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText disabled:opacity-50"
-        >
-          {busy ? "Sending…" : "Send to 3D"}
-        </button>
-        <button
-          onClick={() => hideJob(job.id, dirName ?? undefined)}
-          disabled={busy}
-          className="px-3 py-1 rounded-md border border-base-600 text-slate-400 hover:text-white disabled:opacity-50"
-        >
-          Discard
-        </button>
-      </div>
-      <div className="mt-2 pt-2 border-t border-base-700 text-slate-500">
-        Prefer your own 3D tool?{" "}
+        <p className="mt-0.5 text-slate-400">
+          Download every object as a PNG cutout{hasViews ? " plus front/back/left/right views" : ""}{" "}
+          — a .zip for your own image-to-3D tool. No providers, nothing billed.
+        </p>
         <button
           onClick={() => dirName && void exportDecomposePack(dirName, job.id).catch(() => {})}
           disabled={busy}
-          className="text-accent-400 hover:text-accent-300 disabled:opacity-50"
+          className="mt-1.5 px-3 py-1 rounded-md border border-accent-500/50 text-accent-300 hover:bg-accent-500/10 disabled:opacity-50"
         >
           Download image pack (.zip)
-        </button>{" "}
-        — {hasViews ? "perspective + 4 views per object" : "one cutout per object"}, no
-        providers, no spend.
+        </button>
       </div>
+
+      {/* ---- 3D path --------------------------------------------------- */}
+      <div className="mt-3 pt-2.5 border-t border-base-700">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          3D path — paid
+        </div>
+        <p className="mt-0.5 text-slate-400">
+          Generate textured <b className="text-slate-300">.glb</b> models with Tripo / Meshy.
+        </p>
+
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-400">
+          <span className="text-slate-500">Generate with:</span>
+          {keyed.map((p) => (
+            <label key={p} className="flex items-center gap-1.5 select-none capitalize">
+              <input type="checkbox" checked={chosen.includes(p)} onChange={() => toggle(p)} />
+              {p}
+            </label>
+          ))}
+          {keyed.length === 0 && (
+            <span className="text-red-400">No Tripo or Meshy key — add one in Settings.</span>
+          )}
+        </div>
+
+        <label
+          className={`mt-1.5 flex items-center gap-1.5 select-none ${
+            hasViews ? "text-slate-500" : "text-slate-600"
+          }`}
+          title={
+            hasViews
+              ? "Experimental: feeds the synthesized left/back/right views to each provider's multi-view endpoint alongside the Fast path. Doubles the spend."
+              : "This decomposition has no side views. Turn on “4 side views” above, then decompose again to enable the Quality path."
+          }
+        >
+          <input
+            type="checkbox"
+            checked={quality && hasViews}
+            disabled={!hasViews}
+            onChange={(e) => setQuality(e.target.checked)}
+          />
+          {hasViews
+            ? "Also run the 4-view Quality path — experimental (doubles the spend)"
+            : "Quality path needs side views (decompose again with “4 side views” on)"}
+        </label>
+
+        <div className="mt-1.5 flex items-start gap-1.5 text-amber-300/90">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          <span>
+            Starts up to <b>{estimate}</b> paid generation(s) — {job.assets.length} object(s), Fast
+            {quality ? " + Quality" : ""} path{quality ? "s" : ""}.
+          </span>
+        </div>
+
+        {err && <p className="mt-1.5 text-red-400">{err}</p>}
+        <button
+          onClick={() => void send()}
+          disabled={busy || chosen.length === 0}
+          className="mt-1.5 px-3 py-1 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText disabled:opacity-50"
+        >
+          {busy ? "Sending…" : "Send to 3D"}
+        </button>
+      </div>
+
+      <button
+        onClick={() => hideJob(job.id, dirName ?? undefined)}
+        disabled={busy}
+        className="mt-3 text-slate-500 hover:text-slate-300 disabled:opacity-50"
+      >
+        Discard this decomposition
+      </button>
     </div>
   );
 }
@@ -188,6 +217,7 @@ function JobCard({
   providerKeys: Record<string, boolean>;
 }) {
   const dirName = useAppStore((s) => s.dirName);
+  const [showUsage, setShowUsage] = useState(false);
   const { done, total } = jobProgress(job);
   const pct =
     job.status === "done"
@@ -285,30 +315,70 @@ function JobCard({
       )}
 
       {job.assets.some((a) => a.models.some((m) => m.glbPath)) && (
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            onClick={() => dirName && void revealDecomposeOutput(dirName)}
-            className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
-          >
-            <FolderOpen size={12} /> Open the models folder
-          </button>
-          {job.status === "done" && (
+        <>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <button
-              onClick={() => dirName && void decomposeScenePath(dirName, job.id).catch(() => {})}
+              onClick={() => dirName && void revealDecomposeOutput(dirName)}
               className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
-              title="Reveal scene.json — import it in Blender via the Cozyverse Bridge add-on (integrations/blender/)"
             >
-              <FolderOpen size={12} /> Blender scene file
+              <FolderOpen size={12} /> Open the models folder
             </button>
+            {job.status === "done" && (
+              <button
+                onClick={() => dirName && void decomposeScenePath(dirName, job.id).catch(() => {})}
+                className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
+                title="Reveal scene.json — the layout manifest the Blender add-on reads and any Unity/Unreal importer can use"
+              >
+                <FolderOpen size={12} /> Scene file (Blender / Unity / Unreal)
+              </button>
+            )}
+            <button
+              onClick={() => dirName && void exportDecomposePack(dirName, job.id).catch(() => {})}
+              className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
+              title="Save a .zip of the decomposition images (perspective + front/back/left/right per object) for any image-to-3D tool"
+            >
+              <FolderOpen size={12} /> Image pack (.zip)
+            </button>
+            <button
+              onClick={() => setShowUsage((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300"
+            >
+              {showUsage ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              How to use these files
+            </button>
+          </div>
+
+          {showUsage && (
+            <div className="mt-2 rounded-md border border-base-700 bg-base-800/40 p-2.5 text-[11px] text-slate-400 leading-relaxed space-y-2">
+              <p>
+                Every model is a standard textured <b className="text-slate-300">.glb</b> in{" "}
+                <span className="text-slate-300">assets/models/</span>, named{" "}
+                <span className="text-slate-300">&lt;object&gt;_&lt;provider&gt;_&lt;path&gt;.glb</span>.
+                <span className="text-slate-300"> scene.json</span> (next to the job) lists every
+                object with its source-image bounding box, so an importer can lay the pieces back
+                out.
+              </p>
+              <p>
+                <b className="text-slate-300">Blender</b> — install{" "}
+                <span className="text-slate-300">integrations/blender/cozyverse_bridge.py</span> via
+                Edit ▸ Preferences ▸ Add-ons ▸ Install, then Sidebar (N) ▸ Cozyverse ▸ point at
+                scene.json ▸ Import Decomposed Scene. Or just File ▸ Import ▸ glTF 2.0 a single
+                model.
+              </p>
+              <p>
+                <b className="text-slate-300">Unity</b> — drop the .glb files into{" "}
+                <span className="text-slate-300">Assets/</span> (needs the glTFast or UnityGLTF
+                package), drag each into the scene. <b className="text-slate-300">Unreal</b> — File
+                ▸ Import Into Level, or drag the .glb into the Content Browser (Interchange glTF is
+                on by default in UE 5.x).
+              </p>
+              <p className="text-slate-500">
+                Full walkthrough: <span className="text-slate-400">docs/decompose-to-3d-tutorial/</span>{" "}
+                and <span className="text-slate-400">integrations/blender/README.md</span>.
+              </p>
+            </div>
           )}
-          <button
-            onClick={() => dirName && void exportDecomposePack(dirName, job.id).catch(() => {})}
-            className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
-            title="Save a .zip of the decomposition images (perspective + front/back/left/right per object) for any image-to-3D tool"
-          >
-            <FolderOpen size={12} /> Image pack (.zip)
-          </button>
-        </div>
+        </>
       )}
     </div>
   );
@@ -439,11 +509,11 @@ export function DecomposePanel() {
   }, [allJobs]);
 
   return (
-    <div className="mt-6 rounded-xl border border-base-700 bg-base-900 p-4">
+    <div id="decompose-panel" className="mt-6 rounded-xl border border-base-700 bg-base-900 p-4">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
           <Boxes size={15} className="text-accent-400" />
-          <h3 className="text-sm font-medium text-slate-200">Decompose &amp; Send to 3D</h3>
+          <h3 className="text-sm font-medium text-slate-200">Decompose to 3D or images</h3>
         </div>
         <div className="flex items-center gap-3">
           {dismissible > 1 && (

@@ -94,6 +94,14 @@ export function ImageStudioPage() {
         stub,
         lite,
       });
+      // The result (and the image-pack / 3D fork) shows up in the panel below.
+      window.setTimeout(
+        () =>
+          document
+            .getElementById("decompose-panel")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        80,
+      );
     } catch (error) {
       setDecomposeError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -646,7 +654,7 @@ export function ImageStudioPage() {
                       </div>
                     </div>
                     <button
-                      title="Break this image into parts and generate 3D models with Tripo & Meshy"
+                      title="Break this image into its separate objects — then export them as image cutouts, or generate 3D models with Tripo & Meshy. You choose in the panel below."
                       disabled={decomposingAssetId === asset.id}
                       onClick={() => void handleDecompose(asset)}
                       className="w-full flex items-center justify-center gap-1.5 border-t border-accent-500/25 py-2 text-xs font-medium text-accent-300 hover:bg-accent-500 hover:text-accentText disabled:opacity-50 transition"
@@ -656,7 +664,7 @@ export function ImageStudioPage() {
                       ) : (
                         <Boxes size={13} />
                       )}
-                      Decompose &amp; Send to 3D
+                      Decompose (3D or images)
                     </button>
                   </div>
                 );

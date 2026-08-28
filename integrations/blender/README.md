@@ -45,5 +45,29 @@ by hand — the placement is a starting point, not a solve.
 }
 ```
 
-Same manifest is intended to drive Unreal (Editor Python) and Unity (Editor
-package) importers — not built yet.
+### Unity
+
+No Cozyverse package yet, but the models are standard glTF:
+
+1. Install a glTF importer — **glTFast** (`com.unity.cloud.gltfast`) or
+   **UnityGLTF** — from the Package Manager.
+2. Copy the `.glb` files from `assets/models/` into your project's `Assets/`
+   folder; drag each into the scene.
+3. For automatic placement, read `scene.json` in an Editor script and position
+   each import from its `bbox` (pixels) against `sourceImage`'s dimensions —
+   the same mapping `cozyverse_bridge.py` does inline in `execute()`.
+
+### Unreal Engine 5
+
+1. Drag a `.glb` into the **Content Browser**, or **File ▸ Import Into Level…**.
+   Interchange glTF import is enabled by default in UE 5.x — no plugin needed.
+2. For layout, parse `scene.json` from an Editor Utility Blueprint / Python
+   (`unreal.EditorLevelLibrary`) and spawn each mesh from its `bbox`.
+
+---
+
+Prefer to skip providers entirely? Cozyverse's **image path** (the
+*Download image pack (.zip)* button) gives you the same per‑object cutouts plus
+`front/back/left/right` views and this manifest, to feed any image‑to‑3D tool of
+your own. The **How to use these files** toggle on a finished job repeats the
+Blender / Unity / Unreal steps in‑app.

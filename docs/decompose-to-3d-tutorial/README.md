@@ -1,38 +1,44 @@
-# Tutorial — Decompose an image into 3D models
+# Tutorial — Decompose an image into 3D models or image cutouts
 
-Turn one Cozyverse image into separate, textured **3D models (`.glb`)** — one per
-object in the scene — using **Tripo** and **Meshy**, both driven from inside
-Cozyverse Studio. No second app to run.
+Take one Cozyverse image and break it into its separate objects (furniture,
+decor, props). Then choose a path:
 
-Every screenshot below is from a real run on the sample project **Town Cozy**.
+- **Image path** — download every object as a clean PNG cutout (plus
+  front/back/left/right views, if the full pipeline made them), packaged as a
+  `.zip` for whatever image‑to‑3D tool you already use. **Free, local, no API key.**
+- **3D path** — generate textured **`.glb`** models with **Tripo** and **Meshy**,
+  driven from inside Cozyverse Studio. **Paid** (their cloud APIs).
+
+The screenshots below are from a real run on the sample project **Town Cozy**.
+The panel layout has been refined since some were taken; the steps are current.
 
 ---
 
 ## Before you start
 
-| Requirement | Why | Notes |
+| For | You need | Notes |
 |---|---|---|
-| A **Tripo** or **Meshy** API key | The 3D models come from their cloud APIs — the only paid part | Add it in **Settings** (Step 1). One key is enough; with both, each object goes to both. |
-| **Python** on your PATH | The image is split into objects by a local Python script | Override the command with the `COZY_PYTHON` env var; point at the script with `COZY_DECOMPOSE_SCRIPT` if it isn't beside the app. |
-| *(Full pipeline only)* `pip install torch transformers accelerate diffusers pillow numpy` | GPU object detection + novel-view synthesis | **Stub mode** (Step 4) skips all of this — use it for your first run. |
+| **Any decomposition** | The one‑time pipeline setup (in the panel) **or** Stub mode | See Step 3. |
+| **Image path** | Nothing else | No key, no spend. |
+| **3D path** | A **Tripo** or **Meshy** API key | Add it in **Settings** (Step 1). One is enough; with both, each object goes to both. |
 
 **Segmentation is local and free.** Nothing reaches a provider, and nothing is
-billed, until you press **Send to 3D** in Step 6.
+billed, until you press **Send to 3D**.
 
-> **Getting help:** there's a **Documentation** button on the splash screen and a
-> **Help & Docs** item at the bottom of the left navigation — both open the
-> in-app help (also under the **Help ▸ Documentation** menu).
+> **Getting help:** the **Documentation** button on the splash screen and
+> **Help & Docs** at the bottom of the left navigation both open the in‑app help.
 
 ---
 
-## Step 1 — Add a Tripo or Meshy key
+## Step 1 — (3D path only) Add a Tripo or Meshy key
 
 Open **Settings** from the left nav. Scroll to the provider list — **Tripo** and
 **Meshy** are near the bottom. Paste a key, **Save**, then **Test Connection**.
 
 ![Settings — the Tripo and Meshy API-key rows](img/01-settings-keys.png)
 
-Keys live in the Windows Credential Manager, never in a project file.
+Keys live in the Windows Credential Manager, never in a project file. Skip this
+step entirely if you only want the image path.
 
 ---
 
@@ -45,112 +51,145 @@ it. (No image yet? Generate or import one in Image Studio first.)
 
 ---
 
-## Step 3 — Find the button in Image Studio
+## Step 3 — Set up the pipeline (once)
 
-Go to **Image Studio**. Every image card has a full-width **Decompose & Send to
-3D** button along its bottom edge.
+Go to **Image Studio**. Below the gallery is the **Decompose to 3D or images**
+panel. Its card offers a one‑time install into an isolated environment Cozyverse
+manages:
 
-![Image Studio — a Decompose button on every card](img/03-image-studio.png)
+| Choice | Size | What you get |
+|---|---|---|
+| **Quick setup** | ~400 MB, CPU | YOLO‑World detection + `rembg` cutouts. Multi‑object, clean mattes, no side views. The sensible default. |
+| **Full setup** | ~3 GB, GPU | Adds Grounded‑SAM masks and **Zero123++** synthesized front/back/left/right views (needed for the 3D Quality path and a richer image pack). |
+| **Stub mode** (header toggle) | 0 | One placeholder crop from the whole image. For shaking out the chain without the pipeline. |
 
-![Close-up of the button on one card](img/03b-button-closeup.png)
+Setup progress streams in the panel. If Python 3.10+ isn't on your PATH the card
+says so (point `COZY_PYTHON` at one, or use Stub mode).
 
----
+The **4 side views** header toggle (Full pipeline only, default on) controls
+whether each decompose spends the extra ~90 s synthesizing views. Turn it off for
+faster, perspective‑only runs.
 
-## Step 4 — First time: turn on Stub mode
-
-Below the gallery sits the **Decompose & Send to 3D** panel. Tick **Stub mode**
-in its header.
-
-![The panel header with the Stub mode toggle](img/04-panel.png)
-
-Stub mode skips the GPU pipeline: it makes **one** placeholder object from the
-whole image, no orthographic views. It's for confirming the chain works —
-segment → confirm → submit → poll → download — before you invest in a full run.
-The 3D providers are still called on **Send**, so you still get real `.glb`
-files back (just one object, from the whole image).
-
-Leave it **off** for the real thing: multiple objects, four synthesized views
-each.
+![The panel header — setup card and toggles](img/04-panel.png)
 
 ---
 
-## Step 5 — Click Decompose
+## Step 4 — Click Decompose
 
-Click **Decompose & Send to 3D** on the image you want. The panel shows the job
-run through **Segmenting image…**.
+Click **Decompose (3D or images)** on the image card you want. The view scrolls
+to the panel and the job runs through **Segmenting image…**:
 
-- **Full mode:** ~10–30 s on a 12 GB GPU — detects objects, cuts each out on
-  white, and (for the Quality path) synthesizes front / left / back / right views.
-- **Stub mode:** near-instant.
+- **Quick / Full:** ~10–40 s (Full + 4 views is longer, ~90 s more).
+- **Stub:** near‑instant.
 
-If the full pipeline's Python packages aren't installed, the job fails here with
-a clear message (`missing dependency … torch / numpy / pillow …`) — switch to
-Stub mode or install them.
+When it finishes, the job card shows **N object(s) found — pick a path**.
 
 ---
 
-## Step 6 — Review the estimate, then confirm
+## Step 5 — Pick a path
 
-When segmentation finishes, the job card shows **N object(s) found** and an amber
-confirmation block.
+### Image path (free)
+
+Press **Download image pack (.zip)**. Choose where to save it. Inside:
+
+```
+scene/original.<ext>                 the source image
+objects/00_sofa/perspective.png      the object cut out on white
+objects/00_sofa/front.png back.png left.png right.png   (Full pipeline only)
+objects/01_lamp/…
+manifest.json                        object list + bounding boxes
+```
+
+Feed these into any image‑to‑3D service. Nothing is sent anywhere by Cozyverse;
+nothing is billed.
+
+### 3D path (paid)
 
 ![The confirmation block with its cost estimate](img/06b-confirm-detail.png)
 
-It spells out **how many paid generations** pressing Send will start:
+- **Generate with: ☐ Tripo ☐ Meshy** — tick the service(s) to build with. Both
+  on by default (if both have a key). The estimate updates as you change it.
+- **Also run the 4‑view Quality path** — experimental; only selectable if this
+  decomposition has side views. Feeds the four views to each provider's
+  multi‑view endpoint alongside the Fast path. **Doubles the spend.**
+- The amber line spells out how many paid generations **Send to 3D** starts:
 
-```
-objects  ×  chosen providers  ×  (1 Fast  +  1 Quality, if 4 views exist)
-```
+  ```
+  objects  ×  chosen providers  ×  (1 Fast  +  1 Quality, if enabled)
+  ```
 
-- **Generate with: ☐ Tripo ☐ Meshy** — tick whichever service(s) you want to
-  build the models. Both are on by default (if both have a key); untick one to
-  use only the other. The estimate updates as you change it.
-- **☑ Also run the 4-view Quality path** — leave ticked for best fidelity; untick
-  for Fast-path only (half the spend).
-- **Send to 3D** — starts generation. **This is the paid step.**
-- **Discard** — throws the decomposition away. Costs nothing.
+- **Send to 3D** — the paid step. **Discard this decomposition** — costs nothing.
 
 ![The confirmation block in context](img/06-confirm.png)
 
 ---
 
-## Step 7 — Watch the models generate
+## Step 6 — Watch the models generate
 
-After **Send to 3D**, each object shows a small grid — one cell per
-provider × path — moving `pending → running → succeeded`.
+Each object shows a small grid — one cell per provider × path — moving
+`pending → running → succeeded`. A green **GLB** tag appears once that model has
+downloaded. A **Stop** button on the job cancels the rest of the run; models
+already finished are kept.
 
 ![One provider done, the other still running](img/07b-modeling-detail.png)
 
-- **Fast** (perspective crop → single-image model): ~1–2 min.
-- **Quality** (4 views → multi-view model): ~2–5 min, higher fidelity.
-- A green **GLB** tag appears once that model has downloaded.
+- **Fast** (perspective crop → single‑image model): ~1–2 min.
+- **Quality** (4 views → multi‑view model): ~2–5 min.
+
+Submissions are rate‑limited (6 at a time); polling then runs in parallel, so a
+large diorama doesn't crawl.
 
 ![Modeling in progress, in context](img/07-modeling.png)
 
-With both providers connected and the Quality path on, that's **up to four
-`.glb` files per object** (Tripo Fast, Tripo Quality, Meshy Fast, Meshy
-Quality). They run in parallel, rate-limited so the providers don't push back.
-
 ---
 
-## Step 8 — Collect the results
+## Step 7 — Collect the results
 
-When the card reads **Done — X/Y models generated**, the files are in your
-project folder:
+When the card reads **Done — X/Y models generated**:
 
-![Job complete — 2/2 models generated](img/08-done.png)
+![Job complete](img/08-done.png)
 
 ```
 Documents/Cozyverses/<project>/assets/models/
-  18cff8_asset_0_meshy_perspective-18cff8eb.glb    (80 MB)
-  18cff8_asset_0_tripo_perspective-18cff8e6.glb    (42 MB)
+  18cff8_asset_0_meshy_perspective-18cff8eb.glb
+  18cff8_asset_0_tripo_perspective-18cff8e6.glb
+Documents/Cozyverses/<project>/assets/decompose/<jobId>/
+  scene.json          layout manifest (bboxes, per-object model paths)
 ```
 
-Each file is `<object>_<provider>_<path>-<id>.glb`. Open them in any 3D viewer,
-or in **ModelForge** for rigging / retopology / format conversion.
+The job's buttons: **Open the models folder**, **Scene file (Blender / Unity /
+Unreal)** (reveals `scene.json`), **Image pack (.zip)**, and **How to use these
+files** (the summary below, in‑app).
 
-*(The run above is a real stub-mode run: one object → one Tripo model + one
-Meshy model, both downloaded.)*
+---
+
+## Step 8 — Use the models in a DCC / engine
+
+Every model is a plain textured **`.glb`**. `scene.json` (schema in
+`integrations/blender/README.md`) gives each object's bounding box in the source
+image so an importer can rebuild the layout.
+
+### Blender
+
+1. **Edit ▸ Preferences ▸ Add‑ons ▸ Install…** →
+   `integrations/blender/cozyverse_bridge.py` → enable **Cozyverse Bridge**.
+2. **Sidebar (N) ▸ Cozyverse** → set the **scene.json** path →
+   **Import Decomposed Scene**. Every object is imported (its preferred Fast‑path
+   GLB), scaled to roughly track its footprint, and dropped on the floor under a
+   `Cozyverse <job>` empty. Adjust **Room size**, then nudge by hand.
+3. Single model instead: **File ▸ Import ▸ glTF 2.0**.
+
+### Unity
+
+Install a glTF importer (**glTFast** or **UnityGLTF**) via Package Manager, drop
+the `.glb` files into `Assets/`, drag each into the scene. `scene.json` can drive
+an Editor script for automatic placement (not shipped).
+
+### Unreal Engine 5
+
+Drag a `.glb` into the **Content Browser**, or **File ▸ Import Into Level…**
+(Interchange glTF is on by default). For layout, read `scene.json` from an Editor
+Utility / Python script (not shipped).
 
 ---
 
@@ -158,17 +197,19 @@ Meshy model, both downloaded.)*
 
 | Symptom | Cause / fix |
 |---|---|
-| Error: "Connect a Tripo or Meshy API key…" | A one-shot decompose with no key. Add a key (Step 1). Decomposition with the confirm step still runs without one — it only asks at **Send to 3D**. |
-| "decompose_pipeline.py was not found" | Set `COZY_DECOMPOSE_SCRIPT` to the script's full path, or place it beside the app executable. |
-| "Could not start Python" | Python isn't on PATH or has another name — set `COZY_PYTHON` (`python3`, or a full path). |
-| Segmentation fails: `missing dependency … torch / numpy / pillow` | Full-pipeline packages aren't installed. Use **Stub mode**, or `pip install torch transformers accelerate diffusers pillow numpy`. |
-| A provider job turns red | Hover it for the reason (out of credits, rejected image, rate-limit). The other jobs continue. |
-| Re-clicking Decompose does nothing new | Identical input is de-duplicated so you're not charged twice — it surfaces the existing job. Change a setting to force a fresh run. |
+| Can't find the image option | It's in the panel below the gallery, after you press Decompose — the confirm block's **Download image pack (.zip)** (also on finished jobs). |
+| "Python 3.10+ must be on PATH…" / "Found Python 3.x" | Install a current Python from python.org, or set `COZY_PYTHON` to one. Or use Stub mode. |
+| "decompose_pipeline.py was not found" | It ships beside the app; set `COZY_DECOMPOSE_SCRIPT` to its path if you moved things. |
+| The setup step failed | The panel now shows the last lines of pip's output. Common: no network, or a wheel with no CUDA build for your Python. |
+| Quality checkbox is disabled | This decomposition has no side views. Turn on **4 side views**, run **Decompose** again. |
+| A provider job turns red | Hover for the reason (out of credits, rejected image, rate‑limit). The others continue. |
+| Re‑clicking Decompose does nothing new | Identical input is de‑duplicated so you aren't charged twice — it surfaces the existing job. Change a setting to force a fresh run. |
+| An old confirm / failed job won't go away | **Discard** it, or **Clear finished** in the panel header — both now delete it from disk. |
 
 ## Advanced options
 
-`DecomposeOptions` (from the UI, or directly via the `decompose_image` /
-`submit_decomposition` commands) also accepts: `tripoModelVersion`, `meshyModel`
-(default `meshy-7`), `textureResolution` (Meshy up to 8192), `quadTopology`,
-`targetPolycount`, `pbr`, `providers` (subset of `["tripo","meshy"]`), and raw
-`meshyExtra` / `tripoExtra` param maps merged verbatim into every request.
+`DecomposeOptions` (via the `decompose_image` / `submit_decomposition` commands)
+also accepts: `tripoModelVersion`, `meshyModel` (default `meshy-7`),
+`textureResolution` (Meshy up to 8192), `quadTopology`, `targetPolycount`,
+`pbr`, `providers` (subset of `["tripo","meshy"]`), and raw `meshyExtra` /
+`tripoExtra` param maps merged verbatim into every request.

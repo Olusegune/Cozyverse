@@ -39,12 +39,21 @@ const SECTIONS: Array<{ title: string; body: string[] }> = [
     ],
   },
   {
-    title: "Decompose & Send to 3D",
+    title: "Decompose — 3D or images",
     body: [
-      "Every image card in Image Studio has a \"Decompose & Send to 3D\" button. It breaks the picture into its separate objects (furniture, decor, props) and turns each one into a 3D model.",
-      "It runs two ways at once: a Fast path (the object's crop straight to a single-image 3D model) and a Quality path (four synthesized orthographic views to a multi-view model). Both go to Tripo and Meshy in parallel — up to four models per object.",
-      "Add a Tripo and/or Meshy API key in Settings first. After segmenting, the panel shows how many objects were found and how many paid generations that means — nothing is sent until you press Send to 3D.",
-      "Stub mode (toggle in the panel) skips the local pipeline and uses a single placeholder crop — for testing the wiring without the GPU step. Finished GLB files land in the project's assets/models folder.",
+      "Every image card in Image Studio has a \"Decompose (3D or images)\" button. It breaks the picture into its separate objects (furniture, decor, props); the panel below the gallery then offers two paths for those objects.",
+      "One-time setup, in the panel: Quick (~400 MB, CPU — clean cutouts, no side views) or Full (~3 GB, GPU — adds Zero123++ synthesized front/back/left/right views). Both install into an isolated environment Cozyverse manages. Stub mode skips all of it with one placeholder crop, for testing the wiring.",
+      "IMAGE PATH (free): in the confirm block press \"Download image pack (.zip)\" — a zip of every object as a PNG cutout, plus its four views if the Full pipeline made them, plus a manifest. Take these into any image-to-3D tool. No API key, nothing billed. The same button is on finished jobs.",
+      "3D PATH (paid): needs a Tripo and/or Meshy API key (Settings). The confirm block shows the object count and exactly how many paid generations \"Send to 3D\" will start — a Fast path (object crop → single-image model) always, and an optional experimental Quality path (the 4 views → multi-view model). Finished .glb files land in the project's assets/models folder; a Stop button cancels a run in progress.",
+    ],
+  },
+  {
+    title: "Using the 3D models (Blender / Unity / Unreal)",
+    body: [
+      "Each model is a standard textured .glb in assets/models/, named <object>_<provider>_<path>.glb. Next to each finished job is scene.json — a manifest listing every object with its bounding box in the source image, so an importer can lay the pieces back out as a scene.",
+      "Blender: install integrations/blender/cozyverse_bridge.py via Edit ▸ Preferences ▸ Add-ons ▸ Install, enable \"Cozyverse Bridge\", then Sidebar (N) ▸ Cozyverse ▸ point at scene.json ▸ Import Decomposed Scene. For a single model, File ▸ Import ▸ glTF 2.0.",
+      "Unity: drop the .glb files into Assets/ (install the glTFast or UnityGLTF package first), drag each into the scene. Unreal: drag the .glb into the Content Browser, or File ▸ Import Into Level (Interchange glTF is enabled by default in UE 5.x).",
+      "The \"How to use these files\" toggle on a finished job repeats these steps in-app. Full walkthrough with screenshots: docs/decompose-to-3d-tutorial/. Add-on details: integrations/blender/README.md.",
     ],
   },
   {
