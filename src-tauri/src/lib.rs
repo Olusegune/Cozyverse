@@ -593,6 +593,7 @@ pub fn run() {
             decompose::get_decomposition,
             decompose::list_decompositions,
             decompose::decompose_forget_job,
+            decompose::decompose_cancel_job,
             decompose::decompose_provider_keys,
             decompose::reveal_decompose_output,
             decompose::decompose_scene_path,

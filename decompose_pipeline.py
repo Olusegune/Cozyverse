@@ -394,18 +394,33 @@ def run_full(image_path: Path, out_dir: Path, quality: bool) -> list[dict]:
         log(f"WARNING: could not load Zero123++ ({e}); Fast Path only.")
         return assets
 
-    # Zero123++ v1.2 emits a 3x2 grid at azimuths 30,90,150,210,270,330 with
-    # alternating elevations. We approximate: right≈90, back≈210, left≈270.
-    GRID = (960, 640)  # 3 wide x 2 tall of 320px tiles
-    TILE = 320
-    picks = {"right": (1, 0), "back": (0, 1), "left": (2, 1)}  # (col,row)
+    # Zero123++ v1.2 returns the six novel views as one tiled image, in reading
+    # order at azimuths 30, 90, 150, 210, 270, 330 relative to the input view
+    # (which we treat as "front" = 0). Elevations alternate +20 / -10.
+    #
+    # The tile grid is 6 square tiles; the model has shipped both a 3-wide x
+    # 2-tall (960x640) and a 2-wide x 3-tall (640x960) layout across versions, so
+    # derive columns from the actual aspect rather than hard-coding. `divmod(idx,
+    # cols)` then gives (row, col) for either. Index -> azimuth is the same in
+    # both because both are row-major.
+    #
+    #   right side of the object  ≈ azimuth 90   -> reading index 1
+    #   back                      ≈ azimuth 210  -> reading index 3  (180 is
+    #                                               between tiles 2 and 3; 3 is
+    #                                               the nearer "behind" view)
+    #   left side                 ≈ azimuth 270  -> reading index 4
+    picks = {"right": 1, "back": 3, "left": 4}
     for i, front in enumerate(per_asset_front):
         try:
             result = pipe(front, num_inference_steps=36).images[0]
-            result = result.resize(GRID)
+            gw, gh = result.size
+            cols = 3 if gw >= gh else 2
+            rows = 6 // cols
+            tw, th = gw // cols, gh // rows
             views = {"front": assets[i]["ortho_views"]["front"]}
-            for name, (c, r) in picks.items():
-                tile = result.crop((c * TILE, r * TILE, (c + 1) * TILE, (r + 1) * TILE))
+            for name, idx in picks.items():
+                r, c = divmod(idx, cols)
+                tile = result.crop((c * tw, r * th, (c + 1) * tw, (r + 1) * th))
                 tp = out_dir / f"asset_{i}_{name}.png"
                 _square_pad(tile).save(tp)
                 views[name] = str(tp)

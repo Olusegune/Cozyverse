@@ -293,6 +293,12 @@ export async function forgetJob(dirName: string, jobId: string): Promise<void> {
   await invoke("decompose_forget_job", { dirName, jobId });
 }
 
+/** Ask a running fan-out to stop. Already-finished models are kept; the rest are
+ * marked failed ("Cancelled"). Throws if the job isn't running. */
+export async function cancelJob(dirName: string, jobId: string): Promise<void> {
+  await invoke("decompose_cancel_job", { dirName, jobId });
+}
+
 const hidden = new Set<string>();
 /** Remove a job from the panel. With `dirName`, also deletes it on disk so it
  * doesn't come back on the next hydrate; without, it's hidden for this session. */
@@ -345,5 +351,34 @@ export function useStubMode(): boolean {
     },
     () => stubMode,
     () => stubMode,
+  );
+}
+
+// ---- 4-view synthesis toggle -------------------------------------------
+// When on (default), the full pipeline also runs Zero123++ to synthesize
+// left/back/right views per object — needed for the Quality path and for a
+// richer image-pack export, but ~90 s of extra GPU time. Off = perspective
+// crops only, much faster. No effect on the lite (CPU) or stub pipelines.
+
+let viewsMode = true;
+const viewsListeners = new Set<() => void>();
+
+export function getViewsMode(): boolean {
+  return viewsMode;
+}
+
+export function setViewsMode(value: boolean) {
+  viewsMode = value;
+  viewsListeners.forEach((l) => l());
+}
+
+export function useViewsMode(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      viewsListeners.add(cb);
+      return () => viewsListeners.delete(cb);
+    },
+    () => viewsMode,
+    () => viewsMode,
   );
 }

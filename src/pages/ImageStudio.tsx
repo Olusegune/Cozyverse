@@ -2,7 +2,12 @@
 import { Boxes, ChevronDown, Download, Expand, Heart, ImagePlus, Loader2, Sparkles, Star, Trash2, Wand2 } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { DecomposePanel } from "../components/DecomposePanel";
-import { decomposeRuntimeStatus, getStubMode, startDecompose } from "../lib/decompose";
+import {
+  decomposeRuntimeStatus,
+  getStubMode,
+  getViewsMode,
+  startDecompose,
+} from "../lib/decompose";
 import { buildEditInstruction, buildImageIntent, defaultVariantControls, type ImageVariantControls, type ShotControls } from "../lib/continuity";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
@@ -83,7 +88,9 @@ export function ImageStudioPage() {
       }
       await startDecompose(dirName, asset.filePath, {
         submit: false,
-        qualityPath: true,
+        // Only the full GPU pipeline can synthesize side views, and only when
+        // the user hasn't turned them off for speed.
+        qualityPath: !stub && !lite && getViewsMode(),
         stub,
         lite,
       });

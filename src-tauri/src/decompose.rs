@@ -31,8 +31,11 @@ use std::{
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex as StdMutex, OnceLock,
+    },
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, Semaphore};
@@ -56,6 +59,56 @@ static PIPELINE_LOCK: Semaphore = Semaphore::const_new(1);
 const FAST_PATH_DEADLINE: Duration = Duration::from_secs(4 * 60);
 const QUALITY_PATH_DEADLINE: Duration = Duration::from_secs(8 * 60);
 const POLL_EVERY: Duration = Duration::from_secs(3);
+
+/// Ceiling on provider status polls happening at once. Submission is the part
+/// providers rate-limit hardest, so it gets the tighter `MAX_INFLIGHT_SUBMISSIONS`
+/// gate; polling is cheap GETs, so this can be much wider — the point is only to
+/// avoid a thundering herd when a big fan-out (dozens of objects) all lands at
+/// once.
+const MAX_INFLIGHT_POLLS: usize = 64;
+
+/// Per-job "please stop" flags, set by `decompose_cancel_job` and checked by the
+/// fan-out worker between polls. An entry exists only while a job is modeling.
+fn cancel_registry() -> &'static StdMutex<HashMap<String, Arc<AtomicBool>>> {
+    static R: OnceLock<StdMutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    R.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+/// Fresh (or reset) cancel flag for a job about to start its fan-out.
+fn cancel_token_for(job_id: &str) -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    cancel_registry()
+        .lock()
+        .unwrap()
+        .insert(job_id.to_string(), flag.clone());
+    flag
+}
+
+/// Ask a running job to stop. Returns false if nothing is registered (job isn't
+/// modeling, or already finished).
+fn signal_cancel(job_id: &str) -> bool {
+    match cancel_registry().lock().unwrap().get(job_id) {
+        Some(flag) => {
+            flag.store(true, Ordering::SeqCst);
+            true
+        }
+        None => false,
+    }
+}
+
+fn clear_cancel(job_id: &str) {
+    cancel_registry().lock().unwrap().remove(job_id);
+}
+
+/// Poll errors worth giving up on immediately (vs. transient 429/5xx/network
+/// blips, which we swallow and retry until the path deadline). Mirrors
+/// `modelforge_core`'s own internal `is_transient`, which isn't exported.
+fn poll_error_is_fatal(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    !["429", "500", "502", "503", "504", "timed out", "timeout", "network error"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+}
 
 /// Newest model each provider exposes. Tripo pins a dated version string;
 /// `v3.1-20260211` is its latest (V3.1 / Studio). Meshy 7 is the current
@@ -505,6 +558,32 @@ pub fn decompose_forget_job(
     Ok(())
 }
 
+/// Ask a running fan-out to stop. Steps that haven't been submitted yet are
+/// skipped; steps already in a provider queue stop being polled and are marked
+/// failed ("Cancelled") — the provider may still finish them server-side, but we
+/// won't download or bill attention to them. No effect once a job is done.
+#[tauri::command]
+pub fn decompose_cancel_job(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+) -> Result<(), String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    if !signal_cancel(&job_id) {
+        return Err("This job isn't running.".into());
+    }
+    if let Some(mut job) = load_state(&project_dir)
+        .jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+    {
+        job.message = "Stopping…".into();
+        let _ = save_job(&project_dir, &job);
+        let _ = app.emit(PROGRESS_EVENT, job);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn decompose_image(
     app: AppHandle,
@@ -703,7 +782,14 @@ async fn fan_out(
         return Err("No provider is configured for any requested path".into());
     }
 
-    let gate = Arc::new(Semaphore::new(MAX_INFLIGHT_SUBMISSIONS));
+    // Submission is rate-limited hard by both providers; polling is not. Hold the
+    // `submit_gate` permit only across `clients.submit()`, then drop it so every
+    // in-flight task can poll concurrently (under the looser `poll_gate`). This
+    // is what keeps a 40+ object fan-out from serializing 6-at-a-time through
+    // multi-minute provider queues.
+    let submit_gate = Arc::new(Semaphore::new(MAX_INFLIGHT_SUBMISSIONS));
+    let poll_gate = Arc::new(Semaphore::new(MAX_INFLIGHT_POLLS));
+    let cancel = cancel_token_for(&job.id);
     let shared = Arc::new(Mutex::new(job.clone()));
     let mut handles = Vec::new();
 
@@ -711,59 +797,124 @@ async fn fan_out(
         let app = app.clone();
         let project_dir = project_dir.to_path_buf();
         let clients = clients.clone();
-        let gate = gate.clone();
+        let submit_gate = submit_gate.clone();
+        let poll_gate = poll_gate.clone();
         let shared = shared.clone();
+        let cancel = cancel.clone();
         handles.push(tauri::async_runtime::spawn(async move {
-            let _permit = gate.acquire_owned().await.ok();
             let deadline = if step.path_kind == "quality" {
                 QUALITY_PATH_DEADLINE
             } else {
                 FAST_PATH_DEADLINE
             };
 
-            let outcome = clients
-                .submit_and_wait(
-                    step.operation.clone(),
-                    step.params.clone(),
-                    POLL_EVERY,
-                    deadline,
-                    |task| {
-                        if let Ok(mut guard) = shared.try_lock() {
-                            if let Some(m) = find_model_mut(&mut guard, &step.key) {
-                                m.status = task_status_str(&task.status).into();
-                                m.progress = task.progress;
-                                if m.task_id.is_none() {
-                                    m.task_id = Some(task.task_id.clone());
-                                }
-                            }
-                            let snapshot = guard.clone();
-                            drop(guard);
-                            let _ = app.emit(PROGRESS_EVENT, snapshot);
-                        }
-                    },
-                )
-                .await;
+            let emit_snapshot = |guard: &DecomposeJob| {
+                let _ = app.emit(PROGRESS_EVENT, guard.clone());
+            };
 
+            // --- submit (rate-limited) ---------------------------------------
+            if cancel.load(Ordering::SeqCst) {
+                let mut guard = shared.lock().await;
+                set_model_failed(&mut guard, &step.key, "Cancelled before it started".into());
+                emit_snapshot(&guard);
+                return;
+            }
+            let submitted = {
+                let _permit = submit_gate.acquire_owned().await.ok();
+                if cancel.load(Ordering::SeqCst) {
+                    let mut guard = shared.lock().await;
+                    set_model_failed(&mut guard, &step.key, "Cancelled before it started".into());
+                    emit_snapshot(&guard);
+                    return;
+                }
+                clients.submit(step.operation.clone(), step.params.clone()).await
+            };
+            let mut task = match submitted {
+                Ok(t) => t,
+                Err(e) => {
+                    let mut guard = shared.lock().await;
+                    set_model_failed(&mut guard, &step.key, e);
+                    let snap = guard.clone();
+                    let _ = save_job(&project_dir, &snap);
+                    drop(guard);
+                    let _ = app.emit(PROGRESS_EVENT, snap);
+                    return;
+                }
+            };
+            {
+                let mut guard = shared.lock().await;
+                if let Some(m) = find_model_mut(&mut guard, &step.key) {
+                    m.status = task_status_str(&task.status).into();
+                    m.progress = task.progress;
+                    m.task_id = Some(task.task_id.clone());
+                }
+                emit_snapshot(&guard);
+            }
+
+            // --- poll until terminal / deadline / cancel --------------------
+            let _poll_permit = poll_gate.acquire_owned().await.ok();
+            let started = Instant::now();
+            let mut ended: Result<(), String> = Ok(());
+            while task.status.is_active() {
+                tokio::time::sleep(POLL_EVERY).await;
+                if cancel.load(Ordering::SeqCst) {
+                    ended = Err("Cancelled".into());
+                    break;
+                }
+                if started.elapsed() > deadline {
+                    ended = Err(format!(
+                        "Timed out after {}s waiting for the provider",
+                        deadline.as_secs()
+                    ));
+                    break;
+                }
+                match clients.poll(&step.operation, &task.task_id).await {
+                    Ok(updated) => {
+                        task = updated;
+                        let mut guard = shared.lock().await;
+                        if let Some(m) = find_model_mut(&mut guard, &step.key) {
+                            m.status = task_status_str(&task.status).into();
+                            m.progress = task.progress;
+                        }
+                        emit_snapshot(&guard);
+                    }
+                    Err(message) => {
+                        if poll_error_is_fatal(&message) {
+                            ended = Err(message);
+                            break;
+                        }
+                        // transient — keep waiting, deadline branch is the backstop
+                    }
+                }
+            }
+
+            // --- resolve outcome -------------------------------------------
             let mut guard = shared.lock().await;
-            match outcome {
-                Ok(task) if task.status == TaskStatus::Succeeded => {
+            match ended {
+                Err(reason) => set_model_failed(&mut guard, &step.key, reason),
+                Ok(()) if task.status == TaskStatus::Succeeded => {
                     let glb = task
                         .model_urls
                         .get("glb")
                         .or_else(|| task.model_urls.get("pbr_glb"))
                         .cloned();
                     match glb {
-                        Some(url) => match download_glb(&project_dir, &step.key, &url).await {
-                            Ok(rel) => {
-                                if let Some(m) = find_model_mut(&mut guard, &step.key) {
-                                    m.status = "succeeded".into();
-                                    m.progress = 1.0;
-                                    m.glb_path = Some(rel);
-                                    m.finished_at = Some(now());
+                        Some(url) => {
+                            drop(guard);
+                            let dl = download_glb(&project_dir, &step.key, &url).await;
+                            guard = shared.lock().await;
+                            match dl {
+                                Ok(rel) => {
+                                    if let Some(m) = find_model_mut(&mut guard, &step.key) {
+                                        m.status = "succeeded".into();
+                                        m.progress = 1.0;
+                                        m.glb_path = Some(rel);
+                                        m.finished_at = Some(now());
+                                    }
                                 }
+                                Err(e) => set_model_failed(&mut guard, &step.key, e),
                             }
-                            Err(e) => set_model_failed(&mut guard, &step.key, e),
-                        },
+                        }
                         None => set_model_failed(
                             &mut guard,
                             &step.key,
@@ -771,12 +922,13 @@ async fn fan_out(
                         ),
                     }
                 }
-                Ok(task) => set_model_failed(
+                Ok(()) => set_model_failed(
                     &mut guard,
                     &step.key,
-                    task.error.unwrap_or_else(|| format!("Ended as {:?}", task.status)),
+                    task.error
+                        .clone()
+                        .unwrap_or_else(|| format!("Ended as {:?}", task.status)),
                 ),
-                Err(e) => set_model_failed(&mut guard, &step.key, e),
             }
             let snapshot = guard.clone();
             if let Err(e) = save_job(&project_dir, &snapshot) {
@@ -792,6 +944,8 @@ async fn fan_out(
     }
 
     // 3. Settle.
+    let was_cancelled = cancel.load(Ordering::SeqCst);
+    clear_cancel(&job.id);
     let mut final_job = shared.lock().await.clone();
     let total: usize = final_job.assets.iter().map(|a| a.models.len()).sum();
     let ok = final_job
@@ -805,8 +959,20 @@ async fn fan_out(
     } else {
         JobStatus::Done
     };
-    final_job.error = (ok == 0).then(|| "Every provider job failed".to_string());
-    final_job.message = format!("Done — {ok}/{total} models generated");
+    final_job.error = if ok == 0 {
+        Some(if was_cancelled {
+            "Cancelled before any model finished".to_string()
+        } else {
+            "Every provider job failed".to_string()
+        })
+    } else {
+        None
+    };
+    final_job.message = if was_cancelled {
+        format!("Cancelled — {ok}/{total} models finished first")
+    } else {
+        format!("Done — {ok}/{total} models generated")
+    };
     *job = final_job;
     if ok > 0 {
         if let Err(e) = write_scene_manifest(project_dir, job) {

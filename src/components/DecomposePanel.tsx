@@ -10,13 +10,16 @@ import {
   isJobActive,
   jobProgress,
   clearFinishedJobs,
+  cancelJob,
   decomposeScenePath,
   exportDecomposePack,
   revealDecomposeOutput,
   setStubMode,
+  setViewsMode,
   submitDecomposition,
   useDecompositions,
   useStubMode,
+  useViewsMode,
   decomposeRuntimeStatus,
   setupDecomposeRuntime,
   useSetupProgress,
@@ -124,11 +127,24 @@ function ConfirmBlock({
       </div>
 
       <label
-        className="mt-1.5 flex items-center gap-1.5 text-slate-500 select-none"
-        title="Experimental: synthesizes 4 views per object and feeds the multi-view endpoints. Currently the synthesized side/back views are rough for objects lifted from a busy scene — the Fast path usually gives better 3D."
+        className={`mt-1.5 flex items-center gap-1.5 select-none ${
+          hasViews ? "text-slate-500" : "text-slate-600"
+        }`}
+        title={
+          hasViews
+            ? "Experimental: feeds the synthesized left/back/right views to each provider's multi-view endpoint alongside the Fast path. Doubles the spend."
+            : "This decomposition has no side views. Turn on “4 side views” above, then decompose again to enable the Quality path."
+        }
       >
-        <input type="checkbox" checked={quality} onChange={(e) => setQuality(e.target.checked)} />
-        Also run the 4-view Quality path — experimental (doubles the spend)
+        <input
+          type="checkbox"
+          checked={quality && hasViews}
+          disabled={!hasViews}
+          onChange={(e) => setQuality(e.target.checked)}
+        />
+        {hasViews
+          ? "Also run the 4-view Quality path — experimental (doubles the spend)"
+          : "Quality path needs side views (decompose again with “4 side views” on)"}
       </label>
 
       {err && <p className="mt-1.5 text-red-400">{err}</p>}
@@ -206,6 +222,15 @@ function JobCard({
           >
             {stageLine(job)}
           </span>
+          {job.status === "modeling" && (
+            <button
+              onClick={() => dirName && void cancelJob(dirName, job.id).catch(() => {})}
+              className="text-[11px] text-slate-500 hover:text-red-400"
+              title="Stop this fan-out. Models already finished are kept; the rest are cancelled."
+            >
+              Stop
+            </button>
+          )}
           {!isJobActive(job) && (
             <button
               onClick={() => hideJob(job.id, dirName ?? undefined)}
@@ -387,6 +412,7 @@ export function DecomposePanel() {
   const dirName = useAppStore((s) => s.dirName);
   const allJobs = useDecompositions();
   const stub = useStubMode();
+  const views = useViewsMode();
   const [providerKeys, setProviderKeys] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -419,21 +445,37 @@ export function DecomposePanel() {
           <Boxes size={15} className="text-accent-400" />
           <h3 className="text-sm font-medium text-slate-200">Decompose &amp; Send to 3D</h3>
         </div>
-        {dismissible > 1 && (
-          <button
-            onClick={() => clearFinishedJobs(dirName ?? undefined)}
-            className="text-[11px] text-slate-500 hover:text-slate-300"
+        <div className="flex items-center gap-3">
+          {dismissible > 1 && (
+            <button
+              onClick={() => clearFinishedJobs(dirName ?? undefined)}
+              className="text-[11px] text-slate-500 hover:text-slate-300"
+            >
+              Clear finished
+            </button>
+          )}
+          <label
+            className={`flex items-center gap-1.5 text-[11px] select-none ${
+              stub ? "text-slate-600" : "text-slate-400"
+            }`}
+            title="Full GPU pipeline only: also synthesize left/back/right views per object (Zero123++, ~90 s extra). Needed for the Quality path and a richer image pack. Off = perspective crops only, much faster."
           >
-            Clear finished
-          </button>
-        )}
-        <label
-          className="flex items-center gap-1.5 text-[11px] text-slate-400 select-none"
-          title="Skip the GPU pipeline — Pillow-only crop, one asset, no ortho views. For shaking out the command/event wiring before spending on the real pipeline. The 3D providers are still called."
-        >
-          <input type="checkbox" checked={stub} onChange={(e) => setStubMode(e.target.checked)} />
-          Stub mode
-        </label>
+            <input
+              type="checkbox"
+              checked={views}
+              disabled={stub}
+              onChange={(e) => setViewsMode(e.target.checked)}
+            />
+            4 side views
+          </label>
+          <label
+            className="flex items-center gap-1.5 text-[11px] text-slate-400 select-none"
+            title="Skip the GPU pipeline — Pillow-only crop, one asset, no ortho views. For shaking out the command/event wiring before spending on the real pipeline. The 3D providers are still called."
+          >
+            <input type="checkbox" checked={stub} onChange={(e) => setStubMode(e.target.checked)} />
+            Stub mode
+          </label>
+        </div>
       </div>
 
       {!stub && <RuntimeCard />}
