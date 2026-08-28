@@ -5,3 +5,5 @@ src-tauri/gen/
 *.log
 .DS_Store
 crates/*/target/
+__pycache__/
+*.pyc
