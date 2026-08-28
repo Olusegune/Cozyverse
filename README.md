@@ -108,7 +108,7 @@ Backend: `src-tauri/src/decompose.rs` (commands `decompose_image`, `submit_decom
 `<project>/decompositions.json`. An identical re-run is de-duplicated against a content hash rather
 than re-billed.
 
-The Tripo/Meshy transport is the **`modelforge-core`** crate (`../crates/modelforge-core`,
+The Tripo/Meshy transport is the **`modelforge-core`** crate (`crates/modelforge-core`,
 lifted from ModelForge), so this app and ModelForge stay identical on upload handling, endpoint
 versions, and status parsing. Default models: Tripo `v3.1-20260211`, Meshy `meshy-7`; overridable
 per run, with `meshyExtra` / `tripoExtra` raw-param pass-throughs for anything not surfaced as an

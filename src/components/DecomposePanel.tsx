@@ -45,20 +45,42 @@ function stageLine(job: DecomposeJob): string {
   }
 }
 
-function ConfirmBlock({ job, providerCount }: { job: DecomposeJob; providerCount: number }) {
+const ALL_PROVIDERS = ["tripo", "meshy"] as const;
+
+function ConfirmBlock({
+  job,
+  providerKeys,
+}: {
+  job: DecomposeJob;
+  providerKeys: Record<string, boolean>;
+}) {
   const dirName = useAppStore((s) => s.dirName);
+  const keyed = ALL_PROVIDERS.filter((p) => providerKeys[p]);
   const [quality, setQuality] = useState(true);
+  const [chosen, setChosen] = useState<string[]>(keyed);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const estimate = estimateGenerations(job, Math.max(providerCount, 1), quality);
+  // Keep the selection in step with which providers actually have a key.
+  useEffect(() => {
+    setChosen((cur) => {
+      const next = cur.filter((p) => keyed.includes(p as (typeof ALL_PROVIDERS)[number]));
+      return next.length ? next : keyed;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerKeys]);
+
+  const toggle = (p: string) =>
+    setChosen((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
+
+  const estimate = estimateGenerations(job, Math.max(chosen.length, 1), quality);
 
   const send = async () => {
-    if (!dirName) return;
+    if (!dirName || chosen.length === 0) return;
     setBusy(true);
     setErr(null);
     try {
-      await submitDecomposition(dirName, job.id, { qualityPath: quality });
+      await submitDecomposition(dirName, job.id, { qualityPath: quality, providers: chosen });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -70,20 +92,34 @@ function ConfirmBlock({ job, providerCount }: { job: DecomposeJob; providerCount
       <div className="flex items-start gap-2">
         <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
         <div>
-          Sends up to <b className="text-slate-200">{estimate}</b> paid 3D generation(s)
-          {providerCount > 0 ? " across the connected provider(s)" : ""} — {job.assets.length}{" "}
-          object(s), Fast{quality ? " + Quality" : ""} path{quality ? "s" : ""}.
+          Sends up to <b className="text-slate-200">{estimate}</b> paid 3D generation(s) —{" "}
+          {job.assets.length} object(s), Fast{quality ? " + Quality" : ""} path{quality ? "s" : ""}.
         </div>
       </div>
-      <label className="mt-2 flex items-center gap-1.5 text-slate-400 select-none">
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-400">
+        <span className="text-slate-500">Generate with:</span>
+        {keyed.map((p) => (
+          <label key={p} className="flex items-center gap-1.5 select-none capitalize">
+            <input type="checkbox" checked={chosen.includes(p)} onChange={() => toggle(p)} />
+            {p}
+          </label>
+        ))}
+        {keyed.length === 0 && (
+          <span className="text-red-400">No Tripo or Meshy key — add one in Settings.</span>
+        )}
+      </div>
+
+      <label className="mt-1.5 flex items-center gap-1.5 text-slate-400 select-none">
         <input type="checkbox" checked={quality} onChange={(e) => setQuality(e.target.checked)} />
         Also run the 4-view Quality path (doubles the spend)
       </label>
+
       {err && <p className="mt-1.5 text-red-400">{err}</p>}
       <div className="mt-2 flex items-center gap-2">
         <button
           onClick={() => void send()}
-          disabled={busy}
+          disabled={busy || chosen.length === 0}
           className="px-3 py-1 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText disabled:opacity-50"
         >
           {busy ? "Sending…" : "Send to 3D"}
@@ -100,7 +136,13 @@ function ConfirmBlock({ job, providerCount }: { job: DecomposeJob; providerCount
   );
 }
 
-function JobCard({ job, providerCount }: { job: DecomposeJob; providerCount: number }) {
+function JobCard({
+  job,
+  providerKeys,
+}: {
+  job: DecomposeJob;
+  providerKeys: Record<string, boolean>;
+}) {
   const { done, total } = jobProgress(job);
   const pct =
     job.status === "done"
@@ -139,7 +181,7 @@ function JobCard({ job, providerCount }: { job: DecomposeJob; providerCount: num
       </div>
 
       {job.status === "awaiting" && !job.submitted && (
-        <ConfirmBlock job={job} providerCount={providerCount} />
+        <ConfirmBlock job={job} providerKeys={providerKeys} />
       )}
 
       {job.submitted && job.assets.some((a) => a.models.length > 0) && (
@@ -179,16 +221,14 @@ export function DecomposePanel() {
   const dirName = useAppStore((s) => s.dirName);
   const allJobs = useDecompositions();
   const stub = useStubMode();
-  const [providerCount, setProviderCount] = useState(1);
+  const [providerKeys, setProviderKeys] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (dirName) void hydrateDecompositions(dirName);
   }, [dirName]);
 
   useEffect(() => {
-    void decomposeProviderKeys().then((keys) =>
-      setProviderCount(Object.values(keys).filter(Boolean).length),
-    );
+    void decomposeProviderKeys().then(setProviderKeys);
   }, []);
 
   const jobs = useMemo(
@@ -220,7 +260,7 @@ export function DecomposePanel() {
       ) : (
         <div className="space-y-2.5">
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} providerCount={providerCount} />
+            <JobCard key={job.id} job={job} providerKeys={providerKeys} />
           ))}
         </div>
       )}

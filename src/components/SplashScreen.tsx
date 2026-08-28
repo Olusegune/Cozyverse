@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { BookOpen, X } from "lucide-react";
 
 const LAST_SPLASH_KEY = "cozyverse-last-splash";
 const AUTO_DISMISS_MS = 8000;
@@ -13,7 +13,7 @@ function nextVariant(): SplashVariant {
   return next;
 }
 
-export function SplashScreen({ onDismiss }: { onDismiss: () => void }) {
+export function SplashScreen({ onDismiss, onOpenHelp }: { onDismiss: () => void; onOpenHelp?: () => void }) {
   const [variant] = useState<SplashVariant>(nextVariant);
   const [closing, setClosing] = useState(false);
 
@@ -49,6 +49,18 @@ export function SplashScreen({ onDismiss }: { onDismiss: () => void }) {
         >
           <X size={14} /> Skip
         </button>
+        {onOpenHelp && (
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              setClosing(true);
+              window.setTimeout(onOpenHelp, 250);
+            }}
+            className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-xs font-medium text-accentText bg-accent-500 hover:bg-accent-400 rounded-full px-4 py-1.5 shadow-lg transition"
+          >
+            <BookOpen size={14} /> Documentation
+          </button>
+        )}
       </div>
     </div>
   );

@@ -26,4 +26,4 @@ walkdir = "2"
 
 # Shared Meshy + Tripo transport, lifted from ModelForge 1.3.0. See
 # ../../crates/modelforge-core and ../../README.md.
-modelforge-core = { path = "../../crates/modelforge-core" }
+modelforge-core = { path = "../crates/modelforge-core" }

@@ -634,7 +634,7 @@ export function ImageStudioPage() {
                       title="Break this image into parts and generate 3D models with Tripo & Meshy"
                       disabled={decomposingAssetId === asset.id}
                       onClick={() => void handleDecompose(asset)}
-                      className="w-full flex items-center justify-center gap-1.5 border-t border-base-700 py-2 text-xs text-slate-300 hover:bg-base-800 hover:text-white disabled:opacity-50 transition"
+                      className="w-full flex items-center justify-center gap-1.5 border-t border-accent-500/25 py-2 text-xs font-medium text-accent-300 hover:bg-accent-500 hover:text-accentText disabled:opacity-50 transition"
                     >
                       {decomposingAssetId === asset.id ? (
                         <Loader2 size={13} className="animate-spin" />

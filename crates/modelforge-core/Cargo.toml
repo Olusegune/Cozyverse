@@ -1,0 +1,19 @@
+[package]
+name = "modelforge-core"
+version = "0.1.0"
+description = "Shared Meshy + Tripo 3D generation clients, lifted out of ModelForge so Cozyverse Studio can drive the same API code without a second running process."
+edition = "2021"
+
+[lib]
+name = "modelforge_core"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["clock"] }
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { BookOpen, Clapperboard, Film, FolderOpen, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo } from "lucide-react";
+import { BookOpen, Clapperboard, Film, FolderOpen, HelpCircle, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo } from "lucide-react";
 import { useAppStore } from "./store/useAppStore";
 import { ProjectsDashboard } from "./pages/ProjectsDashboard";
 import { WorldBiblePage } from "./pages/WorldBible";
@@ -49,7 +49,15 @@ export function App() {
   }, [saveNow]);
 
   if (showSplash) {
-    return <SplashScreen onDismiss={() => setShowSplash(false)} />;
+    return (
+      <SplashScreen
+        onDismiss={() => setShowSplash(false)}
+        onOpenHelp={() => {
+          setShowSplash(false);
+          setHelpOpen(true);
+        }}
+      />
+    );
   }
 
   // Each item gets its own chip color — a deliberate multi-color treatment (like a real icon set,
@@ -98,6 +106,15 @@ export function App() {
             </button>
           ))}
         </nav>
+        <button
+          onClick={() => setHelpOpen(true)}
+          className="mx-2 mb-1 flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-base-800 transition"
+        >
+          <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0 bg-accent-500/20">
+            <HelpCircle size={16} className="text-accent-400" />
+          </span>
+          Help &amp; Docs
+        </button>
         <QueuePanel />
         {project && (
           <div className="px-2 pb-2">
