@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronRight,
   FolderOpen,
-  Images,
   Loader2,
   RotateCw,
   View,
@@ -184,124 +183,25 @@ function AssetCutout({ asset, className }: { asset: DecomposedAsset; className?:
   );
 }
 
-/** The third path: pull a ready-made CC0 model per object from Poly Haven. */
-function LibrarySection({ job }: { job: DecomposeJob }) {
-  const dirName = useAppStore((s) => s.dirName);
-  const [cands, setCands] = useState<Record<string, LibraryCandidate[] | "loading">>({});
-  const [busy, setBusy] = useState<string | null>(null);
+type PathTab = "3d" | "images" | "library";
 
-  const find = async (a: DecomposedAsset) => {
-    setCands((c) => ({ ...c, [a.id]: "loading" }));
-    try {
-      const results = await librarySearch(a.class);
-      setCands((c) => ({ ...c, [a.id]: results }));
-    } catch {
-      setCands((c) => ({ ...c, [a.id]: [] }));
-    }
-  };
-  const attachedCount = job.assets.filter((a) =>
-    a.models.some((m) => m.provider === "library"),
-  ).length;
-
-  const pick = async (a: DecomposedAsset, cand: LibraryCandidate) => {
-    if (!dirName) return;
-    setBusy(a.id);
-    try {
-      await libraryAttach(dirName, job.id, a.id, cand.id);
-      setCands((c) => {
-        const n = { ...c };
-        delete n[a.id];
-        return n;
-      });
-    } catch {
-      /* leave the strip open so they can retry */
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="mt-3 rounded-md border-l-2 border-emerald-500/60 pl-2">
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-400">
-        <Boxes size={12} /> Asset library — free (CC0)
-      </div>
-      <p className="mt-0.5 text-slate-400">
-        Attach a ready-made model for an object instead of generating it — clean topology, authored
-        materials, no spend. All CC0 (Poly Haven); a <b className="text-slate-300">CREDITS.txt</b> is
-        written to the project automatically.
-      </p>
-      <div className="mt-1.5 space-y-1.5">
-        {job.assets.map((a) => {
-          const attached = a.models.find((m) => m.provider === "library");
-          const list = cands[a.id];
-          return (
-            <div key={a.id} className="rounded border border-base-700 p-1.5">
-              <div className="flex items-center gap-2">
-                <AssetCutout asset={a} className="h-7 w-7 rounded shrink-0" />
-                <span className="capitalize text-slate-300">{a.class}</span>
-                {attached ? (
-                  <span className="ml-auto flex items-center gap-2 text-emerald-400">
-                    <CheckCircle2 size={12} />
-                    <span className="max-w-[120px] truncate" title={attached.author ?? undefined}>
-                      {attached.author ?? attached.source ?? "attached"}
-                    </span>
-                    <button
-                      onClick={() => dirName && void libraryDetach(dirName, job.id, a.id).catch(() => {})}
-                      className="text-slate-500 hover:text-slate-300"
-                    >
-                      remove
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => void find(a)}
-                    disabled={list === "loading"}
-                    className="ml-auto text-accent-400 hover:text-accent-300 disabled:opacity-50"
-                  >
-                    {list === "loading" ? "searching…" : "Find a free asset"}
-                  </button>
-                )}
-              </div>
-              {Array.isArray(list) && !attached && list.length > 0 && (
-                <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
-                  {list.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => void pick(a, c)}
-                      disabled={busy === a.id}
-                      title={`${c.name} · ${c.author} · ${c.license}${
-                        c.polycount ? ` · ${c.polycount.toLocaleString()} tris` : ""
-                      }`}
-                      className="w-16 shrink-0 rounded border border-base-700 hover:border-accent-500 disabled:opacity-50"
-                    >
-                      <img
-                        src={c.thumbnailUrl}
-                        alt={c.name}
-                        className="h-16 w-16 rounded-t bg-white object-cover"
-                      />
-                      <div className="truncate px-1 py-0.5 text-[9px] text-slate-400">{c.name}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {Array.isArray(list) && !attached && list.length === 0 && (
-                <p className="mt-1 text-[10px] text-slate-500">No CC0 match for “{a.class}”.</p>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {attachedCount > 0 && (
-        <button
-          onClick={() => dirName && void libraryFinalize(dirName, job.id).catch(() => {})}
-          className="mt-2 px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white"
-        >
-          Use {attachedCount} library asset{attachedCount > 1 ? "s" : ""} &amp; finish
-        </button>
-      )}
-    </div>
-  );
-}
+const TAB_META: Record<PathTab, { label: string; sub: string; on: string }> = {
+  "3d": {
+    label: "3D models",
+    sub: "paid",
+    on: "bg-accent-500/15 text-accent-300 ring-1 ring-accent-500/40",
+  },
+  images: {
+    label: "Images",
+    sub: "free",
+    on: "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/40",
+  },
+  library: {
+    label: "Asset library",
+    sub: "free",
+    on: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40",
+  },
+};
 
 function ConfirmBlock({
   job,
@@ -313,6 +213,8 @@ function ConfirmBlock({
   const dirName = useAppStore((s) => s.dirName);
   const intent = useDecomposeIntent();
   const keyed = ALL_PROVIDERS.filter((p) => providerKeys[p]);
+
+  const [tab, setTab] = useState<PathTab>(intent === "images" ? "images" : "3d");
   const [quality, setQuality] = useState(false);
   const [chosen, setChosen] = useState<string[]>(keyed);
   const [busy, setBusy] = useState(false);
@@ -322,10 +224,14 @@ function ConfirmBlock({
   );
   const [balances, setBalances] = useState<Record<string, number | null>>({});
 
+  // --- asset library state ---
+  const [cands, setCands] = useState<Record<string, LibraryCandidate[] | "loading">>({});
+  const [libBusy, setLibBusy] = useState<string | null>(null);
+  const [openLib, setOpenLib] = useState<string | null>(null);
+
   useEffect(() => {
     void providerBalance().then(setBalances).catch(() => {});
   }, []);
-  // New assets showing up (a re-decompose) → select them too.
   useEffect(() => {
     setSelected((cur) => {
       const next = new Set(cur);
@@ -333,15 +239,6 @@ function ConfirmBlock({
       return next;
     });
   }, [job.assets]);
-
-  const toggleAsset = (id: string) =>
-    setSelected((cur) => {
-      const next = new Set(cur);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
-  // Keep the selection in step with which providers actually have a key.
   useEffect(() => {
     setChosen((cur) => {
       const next = cur.filter((p) => keyed.includes(p as (typeof ALL_PROVIDERS)[number]));
@@ -350,7 +247,13 @@ function ConfirmBlock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerKeys]);
 
-  const toggle = (p: string) =>
+  const toggleAsset = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const toggleProvider = (p: string) =>
     setChosen((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
 
   const estimate = estimateGenerations(job, Math.max(chosen.length, 1), quality, (id) =>
@@ -359,8 +262,8 @@ function ConfirmBlock({
   const hasViews = job.assets.some(
     (a) => a.orthoViews.left || a.orthoViews.back || a.orthoViews.right,
   );
-  const lowBalance = chosen.some(
-    (p) => typeof balances[p] === "number" && (balances[p] as number) < estimate,
+  const shortProviders = ALL_PROVIDERS.filter(
+    (p) => chosen.includes(p) && typeof balances[p] === "number" && (balances[p] as number) < estimate,
   );
 
   const send = async () => {
@@ -379,178 +282,323 @@ function ConfirmBlock({
     }
   };
 
-  const lead3d = intent === "3d";
+  const findAssets = async (a: DecomposedAsset) => {
+    setCands((c) => ({ ...c, [a.id]: "loading" }));
+    try {
+      const results = await librarySearch(a.class);
+      setCands((c) => ({ ...c, [a.id]: results }));
+    } catch {
+      setCands((c) => ({ ...c, [a.id]: [] }));
+    }
+  };
+  const pickAsset = async (a: DecomposedAsset, cand: LibraryCandidate) => {
+    if (!dirName) return;
+    setLibBusy(a.id);
+    try {
+      await libraryAttach(dirName, job.id, a.id, cand.id);
+      setOpenLib(null);
+    } catch {
+      /* keep the strip open to retry */
+    } finally {
+      setLibBusy(null);
+    }
+  };
+  const attachedCount = job.assets.filter((a) =>
+    a.models.some((m) => m.provider === "library"),
+  ).length;
+
+  const allSelected = selected.size === job.assets.length;
 
   return (
-    <div className="mt-2 flex flex-col rounded-md border border-base-600 bg-base-800/40 p-2.5 text-xs">
-      <div className="text-slate-300 font-medium" style={{ order: 0 }}>
-        {job.assets.length} object(s) found —{" "}
-        {lead3d ? "generate 3D models, or grab the images instead" : "grab the image cutouts, or send to 3D instead"}
-      </div>
-
-      {/* ---- Image path -------------------------------------------------- */}
-      <div
-        className={`mt-2.5 rounded-md border-l-2 pl-2 ${
-          lead3d ? "border-transparent opacity-70" : "border-sky-500"
-        }`}
-        style={{ order: lead3d ? 2 : 1 }}
-      >
-        <div
-          className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${
-            lead3d ? "text-slate-500" : "text-sky-400"
-          }`}
-        >
-          <Images size={12} /> Image path
-        </div>
-        <p className="mt-0.5 text-slate-400">
-          A .zip of every object for your own image-to-3D tool.{" "}
-          <b className="text-slate-300">Free</b>: the pipeline's cutout
-          {hasViews ? " + Zero123++ side views" : ""}, as-is.{" "}
-          <b className="text-slate-300">AI turnaround</b>: all five views per object re-rendered
-          large and clean on white by an image model — perspective/front are observed, back/sides
-          are inferred. Paid.
-        </p>
-        <ImagePackActions jobId={job.id} />
-      </div>
-
-      {/* ---- 3D path --------------------------------------------------- */}
-      <div
-        className={`mt-3 rounded-md border-l-2 pl-2 ${
-          lead3d ? "border-accent-500" : "border-transparent opacity-70"
-        }`}
-        style={{ order: lead3d ? 1 : 2 }}
-      >
-        <div
-          className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${
-            lead3d ? "text-accent-400" : "text-slate-500"
-          }`}
-        >
-          <Boxes size={12} /> 3D path — paid
-        </div>
-        <p className="mt-0.5 text-slate-400">
-          Generate textured <b className="text-slate-300">.glb</b> models with Tripo / Meshy.
-        </p>
-
-        {/* object picker — don't pay for junk detections */}
-        <div className="mt-2">
-          <div className="flex items-center justify-between text-slate-500">
-            <span>
-              Objects to generate — <b className="text-slate-300">{selected.size}</b>/
-              {job.assets.length}
-            </span>
-            <button
-              className="hover:text-slate-300"
-              onClick={() =>
-                setSelected((cur) =>
-                  cur.size === job.assets.length
-                    ? new Set()
-                    : new Set(job.assets.map((a) => a.id)),
-                )
-              }
-            >
-              {selected.size === job.assets.length ? "clear all" : "select all"}
-            </button>
-          </div>
-          <div className="mt-1.5 grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-1.5">
-            {job.assets.map((a) => {
-              const on = selected.has(a.id);
-              return (
-                <button
-                  key={a.id}
-                  onClick={() => toggleAsset(a.id)}
-                  title={a.class}
-                  className={`relative rounded border text-left transition ${
-                    on ? "border-accent-500" : "border-base-700 opacity-40 hover:opacity-70"
-                  }`}
-                >
-                  <AssetCutout asset={a} className="h-14 w-full rounded-t" />
-                  <div className="truncate px-1 py-0.5 text-[9px] text-slate-400">{a.class}</div>
-                  {on && (
-                    <CheckCircle2
-                      size={12}
-                      className="absolute right-0.5 top-0.5 text-accent-400 drop-shadow"
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-400">
-          <span className="text-slate-500">Generate with:</span>
-          {keyed.map((p) => (
-            <label key={p} className="flex items-center gap-1.5 select-none capitalize">
-              <input type="checkbox" checked={chosen.includes(p)} onChange={() => toggle(p)} />
-              {p}
-            </label>
-          ))}
-          {keyed.length === 0 && (
-            <span className="text-red-400">No Tripo or Meshy key — add one in Settings.</span>
-          )}
-        </div>
-
-        <label
-          className={`mt-1.5 flex items-center gap-1.5 select-none ${
-            hasViews ? "text-slate-500" : "text-slate-600"
-          }`}
-          title={
-            hasViews
-              ? "Experimental: feeds the synthesized left/back/right views to each provider's multi-view endpoint alongside the Fast path. Doubles the spend."
-              : "This decomposition has no side views. Turn on “4 side views” above, then decompose again to enable the Quality path."
-          }
-        >
-          <input
-            type="checkbox"
-            checked={quality && hasViews}
-            disabled={!hasViews}
-            onChange={(e) => setQuality(e.target.checked)}
-          />
-          {hasViews
-            ? "Also run the 4-view Quality path — experimental (doubles the spend)"
-            : "Quality path needs side views (decompose again with “4 side views” on)"}
-        </label>
-
-        <div className="mt-1.5 flex items-start gap-1.5 text-amber-300/90">
-          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-          <span>
-            Starts up to <b>{estimate}</b> paid generation(s) — {selected.size} object(s), Fast
-            {quality ? " + Quality" : ""} path{quality ? "s" : ""}.
-          </span>
-        </div>
-
-        {(typeof balances.tripo === "number" || typeof balances.meshy === "number") && (
-          <p className={`mt-1 ${lowBalance ? "text-amber-400" : "text-slate-500"}`}>
-            Balance:{" "}
-            {ALL_PROVIDERS.filter((p) => chosen.includes(p) && typeof balances[p] === "number")
-              .map((p) => `${p} ${Math.round(balances[p] as number)}`)
-              .join(" · ") || "—"}
-            {lowBalance && " — may not cover this run"}
-          </p>
-        )}
-
-        {err && <p className="mt-1.5 text-red-400">{err}</p>}
+    <div className="mt-2 rounded-lg border border-base-600 bg-base-800/40 text-xs">
+      {/* header */}
+      <div className="flex items-center justify-between px-2.5 py-2 border-b border-base-700">
+        <span className="font-medium text-slate-200">{job.assets.length} objects found</span>
         <button
-          onClick={() => void send()}
-          disabled={busy || chosen.length === 0 || selected.size === 0}
-          className="mt-1.5 px-3 py-1 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText disabled:opacity-50"
+          onClick={() => hideJob(job.id, dirName ?? undefined)}
+          disabled={busy}
+          className="text-slate-500 hover:text-slate-300 disabled:opacity-50"
+          title="Discard this decomposition"
         >
-          {busy ? "Sending…" : `Send ${selected.size} to 3D`}
+          <X size={13} />
         </button>
       </div>
 
-      <div style={{ order: 3 }}>
-        <LibrarySection job={job} />
+      {/* path tabs */}
+      <div className="flex gap-1 px-2.5 pt-2">
+        {(Object.keys(TAB_META) as PathTab[]).map((t) => {
+          const m = TAB_META[t];
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex items-baseline gap-1.5 rounded-md px-2.5 py-1 transition ${
+                tab === t ? m.on : "text-slate-400 hover:bg-base-700/50"
+              }`}
+            >
+              {m.label}
+              <span className="text-[9px] uppercase tracking-wide opacity-70">{m.sub}</span>
+            </button>
+          );
+        })}
       </div>
 
-      <button
-        onClick={() => hideJob(job.id, dirName ?? undefined)}
-        disabled={busy}
-        className="mt-3 text-left text-slate-500 hover:text-slate-300 disabled:opacity-50"
-        style={{ order: 4 }}
-      >
-        Discard this decomposition
-      </button>
+      {/* shared object grid */}
+      <div className="px-2.5 pt-2">
+        <div className="flex items-center justify-between text-slate-500">
+          <span>
+            {tab === "library" ? (
+              <>Pick an object to swap for a ready-made model</>
+            ) : (
+              <>
+                <b className="text-slate-300">{selected.size}</b>/{job.assets.length} selected
+              </>
+            )}
+          </span>
+          {tab !== "library" && (
+            <button
+              className="hover:text-slate-300"
+              onClick={() =>
+                setSelected(allSelected ? new Set() : new Set(job.assets.map((a) => a.id)))
+              }
+            >
+              {allSelected ? "select none" : "select all"}
+            </button>
+          )}
+        </div>
+        <div className="mt-1.5 grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-1.5">
+          {job.assets.map((a) => {
+            const on = selected.has(a.id);
+            const lib = a.models.find((m) => m.provider === "library");
+            const libMode = tab === "library";
+            const dim = libMode ? false : !on;
+            return (
+              <button
+                key={a.id}
+                title={a.class}
+                onClick={() => {
+                  if (libMode) {
+                    setOpenLib((cur) => (cur === a.id ? null : a.id));
+                    if (!cands[a.id] && !lib) void findAssets(a);
+                  } else {
+                    toggleAsset(a.id);
+                  }
+                }}
+                className={`relative overflow-hidden rounded-md border text-left transition ${
+                  libMode && openLib === a.id
+                    ? "border-emerald-500 ring-1 ring-emerald-500/40"
+                    : (libMode && lib) || (!libMode && on)
+                      ? "border-accent-500/70"
+                      : "border-base-700"
+                } ${dim ? "opacity-45 hover:opacity-80" : ""}`}
+              >
+                <AssetCutout asset={a} className="h-14 w-full" />
+                <div className="truncate bg-base-900/80 px-1 py-0.5 text-[9px] capitalize text-slate-300">
+                  {a.class}
+                </div>
+                {/* corner badge */}
+                <span className="absolute right-1 top-1">
+                  {libMode ? (
+                    lib ? (
+                      <CheckCircle2 size={13} className="text-emerald-400 drop-shadow" />
+                    ) : null
+                  ) : on ? (
+                    <CheckCircle2 size={13} className="text-accent-400 drop-shadow" />
+                  ) : (
+                    <span className="block h-3 w-3 rounded-full border border-white/50 bg-black/30" />
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* per-tab controls */}
+      <div className="px-2.5 pb-2.5 pt-2">
+        {tab === "3d" && (
+          <>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-400">
+              <span className="text-slate-500">Generate with</span>
+              {keyed.map((p) => (
+                <label key={p} className="flex items-center gap-1.5 capitalize select-none">
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(p)}
+                    onChange={() => toggleProvider(p)}
+                  />
+                  {p}
+                </label>
+              ))}
+              {keyed.length === 0 && (
+                <span className="text-red-400">No Tripo or Meshy key — add one in Settings.</span>
+              )}
+            </div>
+
+            <label
+              className={`mt-1.5 flex items-center gap-1.5 select-none ${
+                hasViews ? "text-slate-500" : "text-slate-600"
+              }`}
+              title={
+                hasViews
+                  ? "Feeds the synthesized left/back/right views to each provider's multi-view endpoint alongside the Fast path. Doubles the spend."
+                  : "This decomposition has no side views. Turn on “4 side views” in the panel header, then decompose again."
+              }
+            >
+              <input
+                type="checkbox"
+                checked={quality && hasViews}
+                disabled={!hasViews}
+                onChange={(e) => setQuality(e.target.checked)}
+              />
+              {hasViews
+                ? "Also run the 4-view Quality path (doubles the spend)"
+                : "Quality path needs side views"}
+            </label>
+
+            <div className="mt-2 rounded-md bg-base-900/60 px-2 py-1.5 text-slate-400">
+              Up to <b className="text-slate-200">{estimate}</b> generations —{" "}
+              {selected.size} object{selected.size === 1 ? "" : "s"}
+              {quality ? ", Fast + Quality" : ", Fast path"}.
+              {(typeof balances.tripo === "number" || typeof balances.meshy === "number") && (
+                <span className="text-slate-500">
+                  {"  ·  Balance "}
+                  {ALL_PROVIDERS.filter((p) => chosen.includes(p) && typeof balances[p] === "number")
+                    .map((p) => `${p} ${Math.round(balances[p] as number)}`)
+                    .join(" · ")}
+                </span>
+              )}
+            </div>
+            {shortProviders.length > 0 && (
+              <div className="mt-1.5 flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-amber-300">
+                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                <span>
+                  {shortProviders.map((p) => `${p} balance ${Math.round(balances[p] as number)}`).join(", ")}{" "}
+                  won't cover {estimate} generations — those will fail partway. Deselect objects or
+                  a provider.
+                </span>
+              </div>
+            )}
+
+            {err && <p className="mt-1.5 text-red-400">{err}</p>}
+            <button
+              onClick={() => void send()}
+              disabled={busy || chosen.length === 0 || selected.size === 0}
+              className="mt-2 rounded-md bg-accent-500 px-3 py-1.5 font-medium text-accentText hover:bg-accent-400 disabled:opacity-50"
+            >
+              {busy ? "Sending…" : `Send ${selected.size} to 3D`}
+            </button>
+          </>
+        )}
+
+        {tab === "images" && (
+          <>
+            <p className="text-slate-400">
+              A .zip of the {selected.size} selected object{selected.size === 1 ? "" : "s"} for your
+              own image-to-3D tool. <b className="text-slate-300">Free</b>: the pipeline's cutout
+              {hasViews ? " + side views" : ""}, as-is. <b className="text-slate-300">AI turnaround</b>
+              : all five views re-rendered clean on white by an image model (perspective/front
+              observed, back/sides inferred) — paid.
+            </p>
+            <div className="mt-1.5">
+              <ImagePackActions jobId={job.id} />
+            </div>
+          </>
+        )}
+
+        {tab === "library" && (
+          <>
+            <p className="text-slate-400">
+              Swap an object for a ready-made <b className="text-slate-300">CC0</b> model (Poly
+              Haven) — clean topology, authored materials, no spend. A{" "}
+              <b className="text-slate-300">CREDITS.txt</b> is written automatically.
+            </p>
+
+            {openLib &&
+              (() => {
+                const a = job.assets.find((x) => x.id === openLib);
+                if (!a) return null;
+                const lib = a.models.find((m) => m.provider === "library");
+                const list = cands[a.id];
+                return (
+                  <div className="mt-2 rounded-md border border-base-700 bg-base-900/50 p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="capitalize text-slate-300">{a.class}</span>
+                      {lib && (
+                        <span className="ml-auto flex items-center gap-2 text-emerald-400">
+                          <CheckCircle2 size={12} />
+                          <span className="max-w-[140px] truncate" title={lib.author ?? undefined}>
+                            {lib.author ?? lib.source}
+                          </span>
+                          <button
+                            onClick={() =>
+                              dirName && void libraryDetach(dirName, job.id, a.id).catch(() => {})
+                            }
+                            className="text-slate-500 hover:text-slate-300"
+                          >
+                            remove
+                          </button>
+                        </span>
+                      )}
+                      {!lib && (
+                        <button
+                          onClick={() => void findAssets(a)}
+                          disabled={list === "loading"}
+                          className="ml-auto text-accent-400 hover:text-accent-300 disabled:opacity-50"
+                        >
+                          {list === "loading" ? "searching…" : "search again"}
+                        </button>
+                      )}
+                    </div>
+                    {list === "loading" && (
+                      <p className="mt-2 flex items-center gap-1.5 text-slate-500">
+                        <Loader2 size={12} className="animate-spin" /> searching Poly Haven…
+                      </p>
+                    )}
+                    {Array.isArray(list) && !lib && list.length > 0 && (
+                      <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                        {list.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => void pickAsset(a, c)}
+                            disabled={libBusy === a.id}
+                            title={`${c.name} · ${c.author} · ${c.license}${
+                              c.polycount ? ` · ${c.polycount.toLocaleString()} tris` : ""
+                            }`}
+                            className="w-[72px] shrink-0 overflow-hidden rounded border border-base-700 hover:border-accent-500 disabled:opacity-50"
+                          >
+                            <img
+                              src={c.thumbnailUrl}
+                              alt={c.name}
+                              className="h-[72px] w-[72px] bg-white object-cover"
+                            />
+                            <div className="truncate px-1 py-0.5 text-[9px] text-slate-400">
+                              {c.name}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {Array.isArray(list) && !lib && list.length === 0 && (
+                      <p className="mt-2 text-[10px] text-slate-500">
+                        No CC0 match for “{a.class}”. Try the 3D or Images path for this one.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
+            {attachedCount > 0 && (
+              <button
+                onClick={() => dirName && void libraryFinalize(dirName, job.id).catch(() => {})}
+                className="mt-2 rounded-md bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-500"
+              >
+                Use {attachedCount} library asset{attachedCount === 1 ? "" : "s"} &amp; finish
+              </button>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

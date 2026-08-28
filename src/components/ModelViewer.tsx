@@ -86,8 +86,8 @@ function ModelViewerImpl({
         model.position.sub(center);
         root.add(model);
 
-        const dist = maxDim * 2.1;
-        camera.position.set(dist * 0.8, dist * 0.55, dist);
+        const dist = maxDim * 1.5;
+        camera.position.set(dist * 0.85, dist * 0.55, dist);
         camera.near = maxDim / 100;
         camera.far = maxDim * 100;
         camera.updateProjectionMatrix();
