@@ -34,7 +34,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, Semaphore};
 
 const KEYRING_SERVICE: &str = "Cozyverse Studio";
@@ -617,7 +617,7 @@ async fn decompose_only(
     let work_dir = project_dir.join("assets").join("decompose").join(&job.id);
     fs::create_dir_all(&work_dir).map_err(|e| format!("Could not create work folder: {e}"))?;
 
-    let parsed = run_pipeline(source, &work_dir, job.quality_path, stub, lite).await?;
+    let parsed = run_pipeline(app, source, &work_dir, job.quality_path, stub, lite).await?;
     if parsed.is_empty() {
         return Err("The pipeline found no distinct assets in this image".into());
     }
@@ -891,7 +891,7 @@ struct RawOrtho {
     right: Option<String>,
 }
 
-fn resolve_script() -> Result<PathBuf, String> {
+fn resolve_script(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("COZY_DECOMPOSE_SCRIPT") {
         let p = PathBuf::from(p);
         if p.is_file() {
@@ -899,6 +899,12 @@ fn resolve_script() -> Result<PathBuf, String> {
         }
     }
     let mut candidates = Vec::new();
+    // Bundled Tauri resource (see tauri.conf.json `bundle.resources`) — the
+    // normal case for an installed build.
+    if let Ok(dir) = app.path().resource_dir() {
+        candidates.push(dir.join("decompose_pipeline.py"));
+        candidates.push(dir.join("resources/decompose_pipeline.py"));
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             candidates.push(dir.join("decompose_pipeline.py"));
@@ -918,13 +924,14 @@ fn resolve_script() -> Result<PathBuf, String> {
 }
 
 async fn run_pipeline(
+    app: &AppHandle,
     source: &Path,
     work_dir: &Path,
     quality: bool,
     stub: bool,
     lite: bool,
 ) -> Result<Vec<RawAsset>, String> {
-    let script = resolve_script()?;
+    let script = resolve_script(app)?;
     let python = crate::decompose_setup::resolve_python();
     // Serialize: one decomposition subprocess at a time (see PIPELINE_LOCK).
     let _permit = PIPELINE_LOCK.acquire().await.map_err(|e| e.to_string())?;
@@ -936,6 +943,8 @@ async fn run_pipeline(
         .arg("--out")
         .arg(work_dir)
         .kill_on_drop(true);
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW — no console pop-up
     if stub {
         cmd.arg("--stub");
     } else if lite {

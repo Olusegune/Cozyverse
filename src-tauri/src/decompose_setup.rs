@@ -17,6 +17,14 @@ use tokio::process::Command;
 const SETUP_EVENT: &str = "decompose://setup";
 static SETUP_RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// A `tokio::process::Command` that never flashes a console window on Windows.
+fn cmd(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut c = Command::new(program);
+    #[cfg(windows)]
+    c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    c
+}
+
 pub(crate) fn pyenv_dir() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
     PathBuf::from(base).join("Cozyverse Studio").join("pyenv")
@@ -62,7 +70,7 @@ pub async fn decompose_runtime_status() -> RuntimeStatus {
 
     const PROBE: &str = "import json\nr = {'full': False, 'lite': False, 'gpu': None}\ntry:\n import torch, transformers, diffusers\n r['full'] = True\n r['gpu'] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None\nexcept Exception:\n pass\ntry:\n import ultralytics\n r['lite'] = True\n if r['gpu'] is None:\n  import torch as _t\n  r['gpu'] = _t.cuda.get_device_name(0) if _t.cuda.is_available() else None\nexcept Exception:\n pass\nprint(json.dumps(r))";
 
-    let probe = Command::new(&python).arg("-c").arg(PROBE).output().await;
+    let probe = cmd(&python).arg("-c").arg(PROBE).output().await;
     let (full_ready, lite_ready, gpu) = match probe {
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout);
@@ -169,7 +177,7 @@ async fn run_streamed(
     program: &str,
     args: &[&str],
 ) -> Result<(), String> {
-    let mut child = Command::new(program)
+    let mut child = cmd(program)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -211,7 +219,7 @@ async fn ensure_venv(app: &AppHandle) -> Result<String, String> {
 
     emit(app, "env", "Locating Python…", 2);
     let base = std::env::var("COZY_PYTHON").unwrap_or_else(|_| "python".into());
-    let ver = Command::new(&base).arg("--version").output().await.map_err(|_| {
+    let ver = cmd(&base).arg("--version").output().await.map_err(|_| {
         "Python 3.10+ must be on PATH to run setup. Install it from python.org, then retry — or use Stub mode, which needs nothing.".to_string()
     })?;
     if !ver.status.success() {
@@ -223,7 +231,7 @@ async fn ensure_venv(app: &AppHandle) -> Result<String, String> {
         if let Some(parent) = pyenv.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let s = Command::new(&base)
+        let s = cmd(&base)
             .arg("-m")
             .arg("venv")
             .arg(&pyenv)
@@ -279,7 +287,7 @@ async fn do_setup_lite(app: &AppHandle) -> Result<(), String> {
     // set_classes() is what triggers ultralytics' one-time CLIP fetch + the
     // text-encoder weight download, so warm that here (not just YOLO(...)) —
     // otherwise the first real run stalls mid-decompose.
-    let _ = Command::new(&py)
+    let _ = cmd(&py)
         .arg("-c")
         .arg("from ultralytics import YOLO\nm = YOLO('yolov8s-worldv2.pt')\nm.set_classes(['sofa', 'lamp', 'table'])\ntry:\n from rembg import new_session\n new_session('u2net')\nexcept Exception:\n pass\nprint('lite ready')")
         .output()
@@ -322,7 +330,7 @@ async fn do_setup(app: &AppHandle) -> Result<(), String> {
 
     emit(app, "models", "Fetching the segmentation models…", 90);
     const FETCH: &str = "from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection, SamModel, SamProcessor\nAutoProcessor.from_pretrained('IDEA-Research/grounding-dino-base')\nAutoModelForZeroShotObjectDetection.from_pretrained('IDEA-Research/grounding-dino-base')\nSamProcessor.from_pretrained('facebook/sam-vit-base')\nSamModel.from_pretrained('facebook/sam-vit-base')\nprint('models ready')";
-    let _ = Command::new(&py).arg("-c").arg(FETCH).output().await;
+    let _ = cmd(&py).arg("-c").arg(FETCH).output().await;
 
     Ok(())
 }
