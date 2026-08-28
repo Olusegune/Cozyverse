@@ -68,10 +68,10 @@ ASSET_VOCAB = [
     "toy", "sculpture", "statue", "fan", "heater", "suitcase", "backpack",
 ]
 
-BOX_THRESHOLD = 0.30
-TEXT_THRESHOLD = 0.25
+BOX_THRESHOLD = 0.22
+TEXT_THRESHOLD = 0.18
 MAX_ASSETS = 12
-MIN_BOX_AREA_FRAC = 0.004   # ignore specks
+MIN_BOX_AREA_FRAC = 0.002   # ignore specks
 PAD_FRAC = 0.06             # context padding around each crop
 
 
@@ -148,16 +148,23 @@ def run_full(image_path: Path, out_dir: Path, quality: bool) -> list[dict]:
     inputs = gd_proc(images=image, text=prompt, return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = gd_model(**inputs)
-    results = gd_proc.post_process_grounded_object_detection(
-        outputs,
-        inputs.input_ids,
-        box_threshold=BOX_THRESHOLD,
+    # transformers renamed `box_threshold` -> `threshold` in v5. Support both.
+    pp_kwargs = dict(
+        input_ids=inputs.input_ids,
         text_threshold=TEXT_THRESHOLD,
         target_sizes=[image.size[::-1]],
-    )[0]
+    )
+    try:
+        results = gd_proc.post_process_grounded_object_detection(
+            outputs, threshold=BOX_THRESHOLD, **pp_kwargs
+        )[0]
+    except TypeError:
+        results = gd_proc.post_process_grounded_object_detection(
+            outputs, box_threshold=BOX_THRESHOLD, **pp_kwargs
+        )[0]
 
     boxes = results["boxes"].cpu().numpy()
-    labels = results["labels"]
+    labels = results.get("text_labels") or results.get("labels") or []
     scores = results["scores"].cpu().numpy()
 
     del gd_model, gd_proc, inputs, outputs
@@ -211,9 +218,7 @@ def run_full(image_path: Path, out_dir: Path, quality: bool) -> list[dict]:
     assets = []
     per_asset_front = []  # keep PIL front crops for stage 4
     for i, (det, mask_set) in enumerate(zip(dets, masks)):
-        m = mask_set[0].numpy().astype(bool)
-        if m.sum() < 64:
-            m = _box_mask(det["box"], H, W)
+        m = _clean_mask(mask_set, det["box"], H, W)
         white = np.full_like(rgb, 255)
         comp = np.where(m[..., None], rgb, white)
 
@@ -250,7 +255,8 @@ def run_full(image_path: Path, out_dir: Path, quality: bool) -> list[dict]:
         pipe = DiffusionPipeline.from_pretrained(
             "sudo-ai/zero123plus-v1.2",
             custom_pipeline="sudo-ai/zero123plus-pipeline",
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            trust_remote_code=True,
+            dtype=torch.float16 if device == "cuda" else torch.float32,
         ).to(device)
         pipe.set_progress_bar_config(disable=True)
     except Exception as e:  # noqa: BLE001
@@ -320,6 +326,41 @@ def _box_mask(box, H, W):
     x0, y0, x1, y1 = [int(v) for v in box]
     m[y0:y1, x0:x1] = True
     return m
+
+
+def _clean_mask(mask_set, box, H, W):
+    """Pick the best of SAM's multimask outputs for this box, then fill interior
+    holes and lightly close ragged edges — a clean cutout matters a lot for the
+    downstream image-to-3D quality."""
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter
+
+    x0, y0, x1, y1 = [int(v) for v in box]
+    box_area = max(1, (x1 - x0) * (y1 - y0))
+    candidates = [mask_set[j].numpy().astype(bool) for j in range(mask_set.shape[0])]
+    # Prefer the largest mask that stays within ~1.6x the detection box (avoids
+    # SAM's occasional "whole wall/floor" mask); else the smallest.
+    scored = sorted(
+        candidates,
+        key=lambda mm: (mm.sum() <= 1.6 * box_area, mm.sum()),
+        reverse=True,
+    )
+    m = scored[0] if scored else candidates[0]
+    if m.sum() < 64:
+        return _box_mask(box, H, W)
+
+    # Fill holes: flood the outside background from each corner; unreached
+    # background pixels are interior holes.
+    inv = Image.fromarray((~m).astype(np.uint8) * 255)  # bg=255, obj=0
+    for seed in ((0, 0), (W - 1, 0), (0, H - 1), (W - 1, H - 1)):
+        if inv.getpixel(seed) == 255:
+            ImageDraw.floodfill(inv, seed, 128)
+    filled = m | (np.array(inv) == 255)
+
+    # Light morphological close to smooth the edge.
+    im = Image.fromarray(filled.astype(np.uint8) * 255)
+    im = im.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+    return np.array(im) > 127
 
 
 def _square_pad(img):
