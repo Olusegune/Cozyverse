@@ -7,3 +7,7 @@ src-tauri/gen/
 crates/*/target/
 __pycache__/
 *.pyc
+
+# stray model weights downloaded by ultralytics/rembg into CWD
+*.pt
+weights/

@@ -43,6 +43,11 @@ pub(crate) fn resolve_python() -> String {
 pub struct RuntimeStatus {
     python: String,
     managed: bool,
+    /// torch + transformers + diffusers — the multi-object + ortho-view pipeline.
+    full_ready: bool,
+    /// ultralytics (+ rembg) — the CPU-friendly boxes + mattes pipeline.
+    lite_ready: bool,
+    /// `full_ready || lite_ready` — at least one real pipeline works.
     ready: bool,
     gpu: Option<String>,
     detail: String,
@@ -55,44 +60,44 @@ pub async fn decompose_runtime_status() -> RuntimeStatus {
     let managed = managed_python().is_some();
     let installing = SETUP_RUNNING.load(Ordering::SeqCst);
 
-    const PROBE: &str = "import json\ntry:\n import torch, transformers, diffusers\n print(json.dumps({'ok': True, 'gpu': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}))\nexcept Exception as e:\n print(json.dumps({'ok': False, 'err': str(e)[:200]}))";
+    const PROBE: &str = "import json\nr = {'full': False, 'lite': False, 'gpu': None}\ntry:\n import torch, transformers, diffusers\n r['full'] = True\n r['gpu'] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None\nexcept Exception:\n pass\ntry:\n import ultralytics\n r['lite'] = True\n if r['gpu'] is None:\n  import torch as _t\n  r['gpu'] = _t.cuda.get_device_name(0) if _t.cuda.is_available() else None\nexcept Exception:\n pass\nprint(json.dumps(r))";
 
     let probe = Command::new(&python).arg("-c").arg(PROBE).output().await;
-    match probe {
+    let (full_ready, lite_ready, gpu) = match probe {
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout);
             let last = out.trim().lines().last().unwrap_or("");
             let v: serde_json::Value = serde_json::from_str(last).unwrap_or_default();
-            let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false);
-            let gpu = v.get("gpu").and_then(|g| g.as_str()).map(str::to_string);
-            let detail = if ok {
-                match &gpu {
-                    Some(g) => g.clone(),
-                    None => "no CUDA GPU — will be slow".into(),
-                }
-            } else {
-                v.get("err")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or("Runtime not set up")
-                    .to_string()
-            };
-            RuntimeStatus {
-                python,
-                managed,
-                ready: ok,
-                gpu,
-                detail,
-                installing,
-            }
+            (
+                v.get("full").and_then(|b| b.as_bool()).unwrap_or(false),
+                v.get("lite").and_then(|b| b.as_bool()).unwrap_or(false),
+                v.get("gpu").and_then(|g| g.as_str()).map(str::to_string),
+            )
         }
-        Err(_) => RuntimeStatus {
-            python,
-            managed,
-            ready: false,
-            gpu: None,
-            detail: "Runtime not set up".into(),
-            installing,
-        },
+        Err(_) => (false, false, None),
+    };
+
+    let ready = full_ready || lite_ready;
+    let detail = if full_ready {
+        match &gpu {
+            Some(g) => format!("full pipeline · {g}"),
+            None => "full pipeline · no CUDA GPU (slow)".into(),
+        }
+    } else if lite_ready {
+        "quick pipeline (CPU)".into()
+    } else {
+        "not set up".into()
+    };
+
+    RuntimeStatus {
+        python,
+        managed,
+        full_ready,
+        lite_ready,
+        ready,
+        gpu,
+        detail,
+        installing,
     }
 }
 
@@ -122,11 +127,14 @@ fn emit(app: &AppHandle, phase: &str, message: &str, percent: u8) {
 }
 
 #[tauri::command]
-pub async fn setup_decompose_runtime(app: AppHandle) -> Result<(), String> {
+pub async fn setup_decompose_runtime(app: AppHandle, mode: Option<String>) -> Result<(), String> {
     if SETUP_RUNNING.swap(true, Ordering::SeqCst) {
         return Err("Setup is already running.".into());
     }
-    let result = do_setup(&app).await;
+    let result = match mode.as_deref() {
+        Some("lite") => do_setup_lite(&app).await,
+        _ => do_setup(&app).await,
+    };
     SETUP_RUNNING.store(false, Ordering::SeqCst);
     let _ = app.emit(
         SETUP_EVENT,
@@ -196,18 +204,16 @@ async fn run_streamed(
     Ok(())
 }
 
-async fn do_setup(app: &AppHandle) -> Result<(), String> {
+/// Version-check the system Python, create the managed venv if absent, upgrade
+/// pip, and return the venv interpreter path.
+async fn ensure_venv(app: &AppHandle) -> Result<String, String> {
     let pyenv = pyenv_dir();
 
     emit(app, "env", "Locating Python…", 2);
     let base = std::env::var("COZY_PYTHON").unwrap_or_else(|_| "python".into());
-    let ver = Command::new(&base)
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|_| {
-            "Python 3.10+ must be on PATH to run setup. Install it from python.org, then retry — or use quick (stub) mode, which needs nothing.".to_string()
-        })?;
+    let ver = Command::new(&base).arg("--version").output().await.map_err(|_| {
+        "Python 3.10+ must be on PATH to run setup. Install it from python.org, then retry — or use Stub mode, which needs nothing.".to_string()
+    })?;
     if !ver.status.success() {
         return Err("The Python on PATH did not respond to `--version`.".into());
     }
@@ -248,6 +254,38 @@ async fn do_setup(app: &AppHandle) -> Result<(), String> {
         &["-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "pip"],
     )
     .await?;
+    Ok(py)
+}
+
+/// Quick, CPU-only pipeline: YOLO-World boxes + rembg mattes. ~400 MB, no CUDA.
+async fn do_setup_lite(app: &AppHandle) -> Result<(), String> {
+    let py = ensure_venv(app).await?;
+
+    emit(app, "lite", "Installing the quick pipeline (~400 MB)…", 12);
+    run_streamed(
+        app,
+        "lite",
+        12,
+        75,
+        &py,
+        &[
+            "-m", "pip", "install", "--disable-pip-version-check",
+            "ultralytics", "rembg", "onnxruntime", "numpy<2", "pillow",
+        ],
+    )
+    .await?;
+
+    emit(app, "models", "Fetching the detection model…", 90);
+    let _ = Command::new(&py)
+        .arg("-c")
+        .arg("from ultralytics import YOLO\nYOLO('yolov8s-worldv2.pt')\ntry:\n from rembg import new_session\n new_session('u2net')\nexcept Exception:\n pass\nprint('lite ready')")
+        .output()
+        .await;
+    Ok(())
+}
+
+async fn do_setup(app: &AppHandle) -> Result<(), String> {
+    let py = ensure_venv(app).await?;
 
     emit(app, "torch", "Downloading PyTorch with CUDA — the big one (~2.5 GB)…", 12);
     run_streamed(

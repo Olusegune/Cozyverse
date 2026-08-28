@@ -63,6 +63,8 @@ export type DecomposeOptions = {
   qualityPath?: boolean;
   /** Pillow-only wiring test — no models (default false). */
   stub?: boolean;
+  /** CPU pipeline (YOLO-World + rembg, no ortho views). Set when the full runtime isn't installed. */
+  lite?: boolean;
   /** When false, stop after segmentation and wait for `submitDecomposition` (default true). */
   submit?: boolean;
   /** Bypass the identical-input dedup check. */
@@ -135,6 +137,11 @@ export async function decomposeScenePath(dirName: string, jobId: string): Promis
 export type RuntimeStatus = {
   python: string;
   managed: boolean;
+  /** torch + transformers + diffusers — multi-object + ortho views. */
+  fullReady: boolean;
+  /** ultralytics (+ rembg) — CPU boxes + mattes, no ortho views. */
+  liteReady: boolean;
+  /** fullReady || liteReady. */
   ready: boolean;
   gpu?: string | null;
   detail: string;
@@ -145,10 +152,11 @@ export async function decomposeRuntimeStatus(): Promise<RuntimeStatus> {
   return invoke<RuntimeStatus>("decompose_runtime_status");
 }
 
-/** Kick off the one-time ~3 GB torch/transformers/diffusers install into an
- * isolated venv. Progress arrives as `decompose://setup` events. */
-export async function setupDecomposeRuntime(): Promise<void> {
-  await invoke("setup_decompose_runtime");
+/** Kick off a one-time pipeline install into an isolated venv.
+ * `"lite"` ≈ 400 MB CPU stack; `"full"` ≈ 3 GB CUDA + diffusion stack.
+ * Progress arrives as `decompose://setup` events. */
+export async function setupDecomposeRuntime(mode: "lite" | "full" = "full"): Promise<void> {
+  await invoke("setup_decompose_runtime", { mode });
 }
 
 export type SetupProgress = {

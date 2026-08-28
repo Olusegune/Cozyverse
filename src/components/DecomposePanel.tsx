@@ -261,18 +261,23 @@ function JobCard({
 function RuntimeCard() {
   const setup = useSetupProgress();
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"lite" | "full" | null>(null);
 
   const refresh = () => void decomposeRuntimeStatus().then(setStatus);
   useEffect(refresh, []);
   useEffect(() => {
     if (setup?.done) {
-      setBusy(false);
+      setBusy(null);
       refresh();
     }
   }, [setup?.done]);
 
-  const installing = busy || status?.installing || (setup != null && !setup.done);
+  const run = (mode: "lite" | "full") => {
+    setBusy(mode);
+    void setupDecomposeRuntime(mode).catch(() => setBusy(null));
+  };
+
+  const installing = busy != null || status?.installing || (setup != null && !setup.done);
 
   if (installing) {
     const pct = setup?.percent ?? 3;
@@ -280,7 +285,7 @@ function RuntimeCard() {
       <div className="mb-3 rounded-md border border-accent-500/30 bg-accent-500/5 p-2.5 text-xs">
         <div className="flex items-center gap-2 text-slate-300">
           <Loader2 size={13} className="animate-spin text-accent-400" />
-          Setting up the full pipeline… {pct}%
+          Setting up the {busy === "lite" ? "quick" : "full"} pipeline… {pct}%
         </div>
         <div className="mt-1.5 h-1 rounded-full bg-base-800 overflow-hidden">
           <div className="h-full bg-accent-500 transition-all" style={{ width: `${pct}%` }} />
@@ -295,21 +300,15 @@ function RuntimeCard() {
   if (setup?.error) {
     return (
       <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/5 p-2.5 text-xs text-red-400">
-        Setup failed: {setup.error}
-        <button
-          onClick={() => {
-            setBusy(true);
-            void setupDecomposeRuntime().catch(() => setBusy(false));
-          }}
-          className="ml-2 underline hover:text-red-300"
-        >
-          Retry
+        Setup failed: {setup.error}{" "}
+        <button onClick={() => run("lite")} className="underline hover:text-red-300">
+          Retry quick
         </button>
       </div>
     );
   }
 
-  if (status?.ready) {
+  if (status?.fullReady) {
     return (
       <p className="mb-3 flex items-center gap-1.5 text-[11px] text-emerald-500">
         <CheckCircle2 size={12} /> Full pipeline ready — {status.detail}
@@ -317,26 +316,37 @@ function RuntimeCard() {
     );
   }
 
+  if (status?.liteReady) {
+    return (
+      <p className="mb-3 flex items-center gap-1.5 text-[11px] text-emerald-500">
+        <CheckCircle2 size={12} /> Quick pipeline ready ({status.detail}) ·{" "}
+        <button onClick={() => run("full")} className="text-accent-400 hover:text-accent-300">
+          add the full pipeline (~3 GB)
+        </button>
+      </p>
+    );
+  }
+
   return (
     <div className="mb-3 rounded-md border border-accent-500/30 bg-accent-500/5 p-2.5 text-xs">
       <p className="text-slate-300">
-        Full decomposition (real object detection + views) needs a{" "}
-        <b className="text-slate-200">one-time ~3 GB setup</b> — PyTorch, the segmentation
-        models, into an isolated environment Cozyverse manages.
+        Real object detection needs a one-time setup, into an isolated environment
+        Cozyverse manages.
       </p>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
-          onClick={() => {
-            setBusy(true);
-            void setupDecomposeRuntime().catch(() => setBusy(false));
-          }}
+          onClick={() => run("lite")}
           className="px-3 py-1 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText"
         >
-          Set it up
+          Quick setup · ~400 MB (CPU)
         </button>
-        <span className="text-slate-500">
-          or tick <b className="text-slate-400">Stub mode</b> for a no-setup quick run.
-        </span>
+        <button
+          onClick={() => run("full")}
+          className="px-3 py-1 rounded-md border border-accent-500/40 text-accent-300 hover:bg-accent-500/10"
+        >
+          Full setup · ~3 GB (GPU + 4-view)
+        </button>
+        <span className="text-slate-500">or tick Stub mode.</span>
       </div>
     </div>
   );

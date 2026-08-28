@@ -2,7 +2,7 @@
 import { Boxes, ChevronDown, Download, Expand, Heart, ImagePlus, Loader2, Sparkles, Star, Trash2, Wand2 } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { DecomposePanel } from "../components/DecomposePanel";
-import { getStubMode, startDecompose } from "../lib/decompose";
+import { decomposeRuntimeStatus, getStubMode, startDecompose } from "../lib/decompose";
 import { buildEditInstruction, buildImageIntent, defaultVariantControls, type ImageVariantControls, type ShotControls } from "../lib/continuity";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
@@ -73,11 +73,19 @@ export function ImageStudioPage() {
     try {
       // submit:false → segment now, then the panel shows the object count and
       // cost estimate and the user confirms the (paid) 3D fan-out.
-      // stub → skip the GPU pipeline (Pillow-only), for shaking out the wiring.
+      // stub → skip all models; else fall back to the lite (CPU) pipeline when
+      // the full runtime isn't installed but the lite one is.
+      const stub = getStubMode();
+      let lite = false;
+      if (!stub) {
+        const rt = await decomposeRuntimeStatus().catch(() => null);
+        lite = !!rt && !rt.fullReady && rt.liteReady;
+      }
       await startDecompose(dirName, asset.filePath, {
         submit: false,
         qualityPath: true,
-        stub: getStubMode(),
+        stub,
+        lite,
       });
     } catch (error) {
       setDecomposeError(error instanceof Error ? error.message : String(error));

@@ -166,6 +166,11 @@ pub struct DecomposeOptions {
     /// Skip the GPU pipeline; Python does a plain center/gravity crop only.
     #[serde(default)]
     pub stub: bool,
+    /// Use the CPU-friendly pipeline (YOLO-World boxes + rembg mattes, no ortho
+    /// views). The frontend sets this when the full runtime isn't installed but
+    /// the lite one is.
+    #[serde(default)]
+    pub lite: bool,
     /// When false, `decompose_image` stops after segmentation with status
     /// `awaiting` and does NOT touch the providers — the UI then shows the
     /// object count and cost estimate and calls `submit_decomposition` to
@@ -212,6 +217,7 @@ impl Default for DecomposeOptions {
         Self {
             quality_path: true,
             stub: false,
+            lite: false,
             submit: true,
             force: false,
             providers: None,
@@ -522,7 +528,8 @@ pub async fn decompose_image(
     let job_id = job.id.clone();
     tauri::async_runtime::spawn(async move {
         let mut job = job;
-        if let Err(message) = decompose_only(&app, &project_dir, &mut job, &source, options.stub).await
+        if let Err(message) =
+            decompose_only(&app, &project_dir, &mut job, &source, options.stub, options.lite).await
         {
             job.status = JobStatus::Error;
             job.error = Some(message.clone());
@@ -595,6 +602,7 @@ async fn decompose_only(
     job: &mut DecomposeJob,
     source: &Path,
     stub: bool,
+    lite: bool,
 ) -> Result<(), String> {
     job.status = JobStatus::Decomposing;
     job.message = "Segmenting image…".into();
@@ -603,7 +611,7 @@ async fn decompose_only(
     let work_dir = project_dir.join("assets").join("decompose").join(&job.id);
     fs::create_dir_all(&work_dir).map_err(|e| format!("Could not create work folder: {e}"))?;
 
-    let parsed = run_pipeline(source, &work_dir, job.quality_path, stub).await?;
+    let parsed = run_pipeline(source, &work_dir, job.quality_path, stub, lite).await?;
     if parsed.is_empty() {
         return Err("The pipeline found no distinct assets in this image".into());
     }
@@ -908,6 +916,7 @@ async fn run_pipeline(
     work_dir: &Path,
     quality: bool,
     stub: bool,
+    lite: bool,
 ) -> Result<Vec<RawAsset>, String> {
     let script = resolve_script()?;
     let python = crate::decompose_setup::resolve_python();
@@ -919,11 +928,12 @@ async fn run_pipeline(
         .arg("--out")
         .arg(work_dir)
         .kill_on_drop(true);
-    if quality {
-        cmd.arg("--quality");
-    }
     if stub {
         cmd.arg("--stub");
+    } else if lite {
+        cmd.arg("--lite");
+    } else if quality {
+        cmd.arg("--quality");
     }
 
     let output = cmd

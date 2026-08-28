@@ -5,7 +5,7 @@ decompose_pipeline.py — split one Cozyverse image into semantic 3D-ready asset
 Called as a subprocess by the Cozyverse Studio Rust backend (see
 src-tauri/src/decompose.rs). Contract:
 
-    python decompose_pipeline.py --image <file> --out <dir> [--quality] [--stub]
+    python decompose_pipeline.py --image <file> --out <dir> [--quality|--lite|--stub]
 
   * stdout  : a single JSON array (last non-empty line) — the asset list.
   * stderr  : human-readable progress / errors.
@@ -26,12 +26,17 @@ Asset entry shape (matches RawAsset in decompose.rs):
       }
     }
 
-Two execution paths
--------------------
---stub (or missing GPU deps + --stub):
+Execution paths
+---------------
+--stub:
     Pillow only. Emits ONE asset — the whole image as the perspective crop, no
-    ortho views. Lets the end-to-end wiring (queue → providers → GLB download)
-    be exercised with zero model downloads.
+    ortho views. Exercises the end-to-end wiring with zero model downloads.
+
+--lite:
+    CPU-friendly. YOLO-World (open-vocab boxes) + rembg (per-crop foreground
+    matte). Multi-object, labelled, clean cutouts, ~400 MB of deps, no CUDA.
+    No orthographic views. This is the sensible default on machines without a
+    capable GPU.  Install: pip install ultralytics rembg onnxruntime pillow numpy
 
 full (default):
     Grounded-SAM for instance masks   : transformers GroundingDINO + SAM
@@ -74,6 +79,16 @@ MAX_ASSETS = 12
 MIN_BOX_AREA_FRAC = 0.002   # ignore specks
 PAD_FRAC = 0.06             # context padding around each crop
 
+# Shorter, concrete vocab for the lite (YOLO-World) path — open-vocab detectors
+# do better with a focused list of unambiguous nouns.
+LITE_VOCAB = [
+    "sofa", "armchair", "chair", "stool", "table", "coffee table", "desk",
+    "bed", "bookshelf", "cabinet", "lamp", "floor lamp", "rug", "curtain",
+    "potted plant", "vase", "picture frame", "mirror", "clock", "television",
+    "record player", "guitar", "fireplace", "box", "basket", "pillow",
+    "stack of books", "mug", "bottle", "candle", "sculpture", "fan",
+]
+
 
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
@@ -103,6 +118,101 @@ def run_stub(image_path: Path, out_dir: Path) -> list[dict]:
             "ortho_views": {"front": str(persp)},
         }
     ]
+
+
+# --------------------------------------------------------------------- lite path
+
+def _lite_require(hint: str):
+    log(f"ERROR: the quick pipeline needs {hint}")
+    log("Install: pip install ultralytics rembg onnxruntime pillow numpy")
+    log("Or use the full setup, or stub mode.")
+    sys.exit(2)
+
+
+def run_lite(image_path: Path, out_dir: Path) -> list[dict]:
+    """CPU-friendly path: YOLO-World open-vocab boxes + rembg per-crop mattes.
+    No orthographic views (that stays a full-pipeline feature)."""
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        _lite_require("numpy / pillow")
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        _lite_require("ultralytics (YOLO-World)")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    image = Image.open(image_path).convert("RGB")
+    W, H = image.size
+    rgb = np.asarray(image)
+
+    log("[1/2] YOLO-World — detecting objects (CPU)")
+    model = YOLO("yolov8s-worldv2.pt")
+    model.set_classes(LITE_VOCAB)
+    res = model.predict(
+        source=str(image_path), conf=0.12, iou=0.5, max_det=MAX_ASSETS, verbose=False
+    )[0]
+
+    dets = []
+    for box, cls, score in zip(
+        res.boxes.xyxy.cpu().numpy(),
+        res.boxes.cls.cpu().numpy().astype(int),
+        res.boxes.conf.cpu().numpy(),
+    ):
+        x0, y0, x1, y1 = [float(v) for v in box]
+        x0, y0 = max(0.0, x0), max(0.0, y0)
+        x1, y1 = min(float(W), x1), min(float(H), y1)
+        if (x1 - x0) * (y1 - y0) < MIN_BOX_AREA_FRAC * W * H:
+            continue
+        label = LITE_VOCAB[cls] if 0 <= cls < len(LITE_VOCAB) else "object"
+        dets.append({"box": [x0, y0, x1, y1], "label": label, "score": float(score)})
+
+    dets.sort(key=lambda d: d["score"], reverse=True)
+    dets = _nms(dets, iou_thresh=0.55)[:MAX_ASSETS]
+    if not dets:
+        log("No objects passed the detection threshold.")
+        return []
+    log("      kept " + ", ".join(f'{d["label"]}({d["score"]:.2f})' for d in dets))
+
+    # Per-crop foreground matte with rembg (optional — falls back to a box crop).
+    matte = None
+    try:
+        from rembg import new_session, remove
+        session = new_session("u2net")
+
+        def matte(pil_crop):
+            cut = remove(pil_crop, session=session, post_process_mask=True)
+            arr = np.asarray(cut.convert("RGBA"))
+            alpha = arr[..., 3:4] / 255.0
+            white = np.full_like(arr[..., :3], 255)
+            return Image.fromarray(
+                (arr[..., :3] * alpha + white * (1 - alpha)).astype(np.uint8)
+            )
+        log("[2/2] rembg — cutting each object out on white")
+    except ImportError:
+        log("[2/2] rembg not installed — using rectangular crops")
+
+    assets = []
+    for i, det in enumerate(dets):
+        x0, y0, x1, y1 = _pad_box(det["box"], W, H, PAD_FRAC)
+        crop = Image.fromarray(rgb[y0:y1, x0:x1])
+        if matte is not None:
+            try:
+                crop = matte(crop)
+            except Exception as e:  # noqa: BLE001
+                log(f"      asset_{i}: matte failed ({e}); keeping rectangular crop")
+        crop = _square_pad(crop)
+        p = out_dir / f"asset_{i}_perspective.png"
+        crop.save(p)
+        assets.append({
+            "id": f"asset_{i}",
+            "class": det["label"],
+            "bbox": [x0, y0, x1, y1],
+            "perspective_image": str(p),
+            "ortho_views": {"front": str(p)},
+        })
+    return assets
 
 
 # --------------------------------------------------------------------- full path
@@ -379,9 +489,11 @@ def main():
     ap.add_argument("--image", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--quality", action="store_true",
-                    help="also synthesise 4 orthographic views per asset")
+                    help="also synthesise 4 orthographic views per asset (full only)")
     ap.add_argument("--stub", action="store_true",
                     help="Pillow-only wiring test: 1 asset, no models")
+    ap.add_argument("--lite", action="store_true",
+                    help="CPU path: YOLO-World boxes + rembg mattes, no ortho views")
     args = ap.parse_args()
 
     if not args.image.is_file():
@@ -391,6 +503,8 @@ def main():
     try:
         if args.stub:
             assets = run_stub(args.image, args.out)
+        elif args.lite:
+            assets = run_lite(args.image, args.out)
         else:
             assets = run_full(args.image, args.out, args.quality)
     except SystemExit:
