@@ -471,6 +471,40 @@ pub fn get_decomposition(
         .ok_or_else(|| "No such decomposition job".into())
 }
 
+/// Permanently drop a finished/awaiting job from `decompositions.json` and delete
+/// its scratch folder (`assets/decompose/<id>/`). Downloaded GLBs in
+/// `assets/models/` are left alone. Refuses while the job is still running.
+#[tauri::command]
+pub fn decompose_forget_job(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+) -> Result<(), String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let mut state = load_state(&project_dir);
+    let Some(pos) = state.jobs.iter().position(|j| j.id == job_id) else {
+        return Ok(()); // already gone — treat as success
+    };
+    if matches!(
+        state.jobs[pos].status,
+        JobStatus::Pending | JobStatus::Decomposing | JobStatus::Modeling
+    ) {
+        return Err("This job is still running — wait for it to finish first.".into());
+    }
+    state.jobs.remove(pos);
+    state.version = STATE_VERSION;
+    let serialized = serde_json::to_string_pretty(&state)
+        .map_err(|e| format!("Could not encode job state: {e}"))?;
+    crate::write_json_atomic(state_path(&project_dir), &serialized)?;
+    let _ = fs::remove_dir_all(
+        project_dir
+            .join("assets")
+            .join("decompose")
+            .join(&job_id),
+    );
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn decompose_image(
     app: AppHandle,
@@ -915,13 +949,16 @@ pub async fn decompose_export_pack(
         Ok(true)
     };
 
+    let mut added = 0usize;
     let source = assets_root.join(&job.image_path);
     if source.is_file() {
         let ext = source
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("png");
-        add(&mut zip, &format!("scene/original.{ext}"), &source)?;
+        if add(&mut zip, &format!("scene/original.{ext}"), &source)? {
+            added += 1;
+        }
     }
 
     let mut manifest_objects = Vec::new();
@@ -940,6 +977,7 @@ pub async fn decompose_export_pack(
             &assets_root.join(&a.perspective_image),
         )? {
             files.insert("perspective".into(), json!("perspective.png"));
+            added += 1;
         }
         for (name, rel) in [
             ("front", &a.ortho_views.front),
@@ -950,6 +988,7 @@ pub async fn decompose_export_pack(
             if let Some(rel) = rel {
                 if add(&mut zip, &format!("{folder}/{name}.png"), &assets_root.join(rel))? {
                     files.insert(name.into(), json!(format!("{name}.png")));
+                    added += 1;
                 }
             }
         }
@@ -960,6 +999,14 @@ pub async fn decompose_export_pack(
             "folder": folder,
             "files": files,
         }));
+    }
+
+    if added == 0 {
+        drop(zip);
+        let _ = fs::remove_file(&dest);
+        return Err(
+            "None of this job's decomposition images are on disk any more — nothing to export.".into(),
+        );
     }
 
     let manifest = serde_json::to_string_pretty(&json!({
@@ -1400,7 +1447,7 @@ async fn download_glb(project_dir: &Path, key: &str, url: &str) -> Result<String
         return Err("Refusing to download a model from a non-HTTPS URL".into());
     }
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(180))
+        .timeout(Duration::from_secs(300))
         .build()
         .map_err(|e| e.to_string())?;
     let response = client

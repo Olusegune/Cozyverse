@@ -184,11 +184,25 @@ async fn run_streamed(
         .spawn()
         .map_err(|e| format!("Could not start {program}: {e}"))?;
 
-    // Drain stderr so the pipe can't fill and deadlock the child.
+    // Drain stderr so the pipe can't fill and deadlock the child — but keep the
+    // last few lines so a failure has something actionable to show.
+    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
     if let Some(err) = child.stderr.take() {
+        let tail = stderr_tail.clone();
         tokio::spawn(async move {
             let mut l = BufReader::new(err).lines();
-            while let Ok(Some(_)) = l.next_line().await {}
+            while let Ok(Some(line)) = l.next_line().await {
+                let t = line.trim();
+                if t.is_empty() {
+                    continue;
+                }
+                if let Ok(mut q) = tail.lock() {
+                    q.push_back(t.to_string());
+                    while q.len() > 6 {
+                        q.pop_front();
+                    }
+                }
+            }
         });
     }
 
@@ -207,7 +221,17 @@ async fn run_streamed(
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
     if !status.success() {
-        return Err(format!("The {phase} step failed (exit {:?}).", status.code()));
+        let detail = stderr_tail
+            .lock()
+            .ok()
+            .map(|q| q.iter().cloned().collect::<Vec<_>>().join(" · "))
+            .filter(|s| !s.is_empty())
+            .map(|s| format!(" — {s}"))
+            .unwrap_or_default();
+        return Err(format!(
+            "The {phase} step failed (exit {:?}){detail}.",
+            status.code()
+        ));
     }
     Ok(())
 }
@@ -224,6 +248,27 @@ async fn ensure_venv(app: &AppHandle) -> Result<String, String> {
     })?;
     if !ver.status.success() {
         return Err("The Python on PATH did not respond to `--version`.".into());
+    }
+    // `python --version` prints to stdout on 3.4+, stderr on older builds.
+    let ver_str = {
+        let a = String::from_utf8_lossy(&ver.stdout);
+        let b = String::from_utf8_lossy(&ver.stderr);
+        if a.trim().is_empty() { b.into_owned() } else { a.into_owned() }
+    };
+    if let Some((maj, min)) = ver_str
+        .split_whitespace()
+        .find(|t| t.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .and_then(|v| {
+            let mut it = v.split('.');
+            Some((it.next()?.parse::<u32>().ok()?, it.next()?.parse::<u32>().ok()?))
+        })
+    {
+        if maj < 3 || (maj == 3 && min < 10) {
+            return Err(format!(
+                "Found Python {maj}.{min} on PATH, but the pipeline needs 3.10 or newer. \
+                 Install a current Python from python.org (or point COZY_PYTHON at one), then retry."
+            ));
+        }
     }
 
     if managed_python().is_none() {

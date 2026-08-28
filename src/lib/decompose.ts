@@ -287,20 +287,37 @@ export function estimateGenerations(
   }, 0);
 }
 
-// Client-only: jobs the user dismissed from the panel (no backend delete yet).
+/** Permanently forget a job: drop it from decompositions.json and delete its
+ * scratch folder. Downloaded GLBs are kept. No-op server-side if already gone. */
+export async function forgetJob(dirName: string, jobId: string): Promise<void> {
+  await invoke("decompose_forget_job", { dirName, jobId });
+}
+
 const hidden = new Set<string>();
-export function hideJob(id: string) {
+/** Remove a job from the panel. With `dirName`, also deletes it on disk so it
+ * doesn't come back on the next hydrate; without, it's hidden for this session. */
+export function hideJob(id: string, dirName?: string) {
   hidden.add(id);
+  if (dirName) {
+    jobs.delete(id);
+    void forgetJob(dirName, id).catch(() => {
+      /* running job, or already gone — the client-side hide still stands */
+    });
+  }
   rebuild();
 }
 export function isHidden(id: string): boolean {
   return hidden.has(id);
 }
 /** Dismiss every job that isn't currently running (done / error / awaiting). */
-export function clearFinishedJobs() {
+export function clearFinishedJobs(dirName?: string) {
   for (const j of snapshot) {
     if (j.status === "done" || j.status === "error" || j.status === "awaiting") {
       hidden.add(j.id);
+      if (dirName) {
+        jobs.delete(j.id);
+        void forgetJob(dirName, j.id).catch(() => {});
+      }
     }
   }
   rebuild();

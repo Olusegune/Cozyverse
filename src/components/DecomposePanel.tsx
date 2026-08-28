@@ -84,6 +84,9 @@ function ConfirmBlock({
     setChosen((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
 
   const estimate = estimateGenerations(job, Math.max(chosen.length, 1), quality);
+  const hasViews = job.assets.some(
+    (a) => a.orthoViews.left || a.orthoViews.back || a.orthoViews.right,
+  );
 
   const send = async () => {
     if (!dirName || chosen.length === 0) return;
@@ -138,7 +141,7 @@ function ConfirmBlock({
           {busy ? "Sending…" : "Send to 3D"}
         </button>
         <button
-          onClick={() => hideJob(job.id)}
+          onClick={() => hideJob(job.id, dirName ?? undefined)}
           disabled={busy}
           className="px-3 py-1 rounded-md border border-base-600 text-slate-400 hover:text-white disabled:opacity-50"
         >
@@ -154,7 +157,8 @@ function ConfirmBlock({
         >
           Download image pack (.zip)
         </button>{" "}
-        — perspective + 4 views per object, no providers, no spend.
+        — {hasViews ? "perspective + 4 views per object" : "one cutout per object"}, no
+        providers, no spend.
       </div>
     </div>
   );
@@ -204,7 +208,7 @@ function JobCard({
           </span>
           {!isJobActive(job) && (
             <button
-              onClick={() => hideJob(job.id)}
+              onClick={() => hideJob(job.id, dirName ?? undefined)}
               title="Dismiss"
               className="text-slate-600 hover:text-slate-300"
             >
@@ -417,7 +421,7 @@ export function DecomposePanel() {
         </div>
         {dismissible > 1 && (
           <button
-            onClick={clearFinishedJobs}
+            onClick={() => clearFinishedJobs(dirName ?? undefined)}
             className="text-[11px] text-slate-500 hover:text-slate-300"
           >
             Clear finished
