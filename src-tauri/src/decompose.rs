@@ -760,8 +760,94 @@ async fn fan_out(
     final_job.error = (ok == 0).then(|| "Every provider job failed".to_string());
     final_job.message = format!("Done — {ok}/{total} models generated");
     *job = final_job;
+    if ok > 0 {
+        if let Err(e) = write_scene_manifest(project_dir, job) {
+            eprintln!("decompose: could not write scene.json: {e}");
+        }
+    }
     publish(app, project_dir, job);
     Ok(())
+}
+
+/// A DCC-agnostic description of the finished batch — one GLB per object plus
+/// the 2D bbox and source-image size so a Blender / Unreal / Unity importer can
+/// lay the pieces back out as a scene. Written to the job's work folder.
+fn write_scene_manifest(project_dir: &Path, job: &DecomposeJob) -> Result<(), String> {
+    let assets_root = project_dir.join("assets");
+    let abs = |rel: &str| assets_root.join(rel).to_string_lossy().replace('\\', "/");
+
+    let objects: Vec<Value> = job
+        .assets
+        .iter()
+        .filter_map(|a| {
+            let mut models = Map::new();
+            for m in &a.models {
+                if let Some(p) = &m.glb_path {
+                    models.insert(format!("{}_{}", m.provider, m.path_kind), json!(abs(p)));
+                }
+            }
+            if models.is_empty() {
+                return None;
+            }
+            // Prefer a Fast-path model as the one to place by default.
+            let preferred = a
+                .models
+                .iter()
+                .find(|m| m.glb_path.is_some() && m.path_kind == "fast")
+                .or_else(|| a.models.iter().find(|m| m.glb_path.is_some()))
+                .map(|m| format!("{}_{}", m.provider, m.path_kind));
+            Some(json!({
+                "id": a.id,
+                "class": a.class,
+                "bbox": a.bbox,
+                "models": Value::Object(models),
+                "preferred": preferred,
+            }))
+        })
+        .collect();
+
+    let manifest = json!({
+        "version": 1,
+        "app": "Cozyverse Studio",
+        "job": job.id,
+        "sourceImage": abs(&job.image_path),
+        "objects": objects,
+    });
+    let path = project_dir
+        .join("assets")
+        .join("decompose")
+        .join(&job.id)
+        .join("scene.json");
+    let _ = fs::create_dir_all(path.parent().unwrap());
+    crate::write_json_atomic(path, &serde_json::to_string_pretty(&manifest).unwrap())
+}
+
+/// Absolute path of a finished job's `scene.json` (see `write_scene_manifest`),
+/// so the UI can reveal it / hand it to a DCC importer.
+#[tauri::command]
+pub fn decompose_scene_path(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+) -> Result<String, String> {
+    let path = crate::project_path(&app, &dir_name)?
+        .join("assets")
+        .join("decompose")
+        .join(&job_id)
+        .join("scene.json");
+    if !path.is_file() {
+        return Err("No scene file for this job yet.".into());
+    }
+    // Reveal it in Explorer for the user.
+    let mut cmd = std::process::Command::new("explorer");
+    cmd.arg(format!("/select,{}", path.display()));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let _ = cmd.spawn();
+    Ok(path.to_string_lossy().into_owned())
 }
 
 // ---------------------------------------------------------------- python bridge
@@ -824,7 +910,7 @@ async fn run_pipeline(
     stub: bool,
 ) -> Result<Vec<RawAsset>, String> {
     let script = resolve_script()?;
-    let python = std::env::var("COZY_PYTHON").unwrap_or_else(|_| "python".into());
+    let python = crate::decompose_setup::resolve_python();
 
     let mut cmd = tokio::process::Command::new(&python);
     cmd.arg(&script)

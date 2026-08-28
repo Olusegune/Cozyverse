@@ -124,6 +124,66 @@ export async function revealDecomposeOutput(dirName: string): Promise<void> {
   await invoke("reveal_decompose_output", { dirName });
 }
 
+/** Reveal a finished job's scene.json (for the Blender / DCC importer) and
+ * return its absolute path. */
+export async function decomposeScenePath(dirName: string, jobId: string): Promise<string> {
+  return invoke<string>("decompose_scene_path", { dirName, jobId });
+}
+
+// ---- full-pipeline runtime (torch/transformers) --------------------------
+
+export type RuntimeStatus = {
+  python: string;
+  managed: boolean;
+  ready: boolean;
+  gpu?: string | null;
+  detail: string;
+  installing: boolean;
+};
+
+export async function decomposeRuntimeStatus(): Promise<RuntimeStatus> {
+  return invoke<RuntimeStatus>("decompose_runtime_status");
+}
+
+/** Kick off the one-time ~3 GB torch/transformers/diffusers install into an
+ * isolated venv. Progress arrives as `decompose://setup` events. */
+export async function setupDecomposeRuntime(): Promise<void> {
+  await invoke("setup_decompose_runtime");
+}
+
+export type SetupProgress = {
+  phase: string;
+  message: string;
+  percent: number;
+  done: boolean;
+  error?: string | null;
+};
+
+const setupListeners = new Set<() => void>();
+let setupSnapshot: SetupProgress | null = null;
+let setupListening = false;
+
+function ensureSetupListening() {
+  if (setupListening) return;
+  setupListening = true;
+  void listen<SetupProgress>("decompose://setup", (e) => {
+    setupSnapshot = e.payload;
+    setupListeners.forEach((l) => l());
+  });
+}
+
+export function useSetupProgress(): SetupProgress | null {
+  ensureSetupListening();
+  return useSyncExternalStore(
+    (cb) => {
+      setupListeners.add(cb);
+      return () => setupListeners.delete(cb);
+    },
+    () => setupSnapshot,
+    () => setupSnapshot,
+  );
+}
+
 // ---- live snapshot store ------------------------------------------------
 
 const jobs = new Map<string, DecomposeJob>();

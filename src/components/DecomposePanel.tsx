@@ -9,13 +9,18 @@ import {
   isHidden,
   isJobActive,
   jobProgress,
+  decomposeScenePath,
   revealDecomposeOutput,
   setStubMode,
   submitDecomposition,
   useDecompositions,
   useStubMode,
+  decomposeRuntimeStatus,
+  setupDecomposeRuntime,
+  useSetupProgress,
   type DecomposeJob,
   type ModelJob,
+  type RuntimeStatus,
 } from "../lib/decompose";
 
 const PATH_LABEL: Record<string, string> = { fast: "Fast", quality: "Quality" };
@@ -57,7 +62,7 @@ function ConfirmBlock({
 }) {
   const dirName = useAppStore((s) => s.dirName);
   const keyed = ALL_PROVIDERS.filter((p) => providerKeys[p]);
-  const [quality, setQuality] = useState(true);
+  const [quality, setQuality] = useState(false);
   const [chosen, setChosen] = useState<string[]>(keyed);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -111,9 +116,12 @@ function ConfirmBlock({
         )}
       </div>
 
-      <label className="mt-1.5 flex items-center gap-1.5 text-slate-400 select-none">
+      <label
+        className="mt-1.5 flex items-center gap-1.5 text-slate-500 select-none"
+        title="Experimental: synthesizes 4 views per object and feeds the multi-view endpoints. Currently the synthesized side/back views are rough for objects lifted from a busy scene — the Fast path usually gives better 3D."
+      >
         <input type="checkbox" checked={quality} onChange={(e) => setQuality(e.target.checked)} />
-        Also run the 4-view Quality path (doubles the spend)
+        Also run the 4-view Quality path — experimental (doubles the spend)
       </label>
 
       {err && <p className="mt-1.5 text-red-400">{err}</p>}
@@ -228,13 +236,108 @@ function JobCard({
       )}
 
       {job.assets.some((a) => a.models.some((m) => m.glbPath)) && (
-        <button
-          onClick={() => dirName && void revealDecomposeOutput(dirName)}
-          className="mt-2 flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
-        >
-          <FolderOpen size={12} /> Open the models folder
-        </button>
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            onClick={() => dirName && void revealDecomposeOutput(dirName)}
+            className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
+          >
+            <FolderOpen size={12} /> Open the models folder
+          </button>
+          {job.status === "done" && (
+            <button
+              onClick={() => dirName && void decomposeScenePath(dirName, job.id).catch(() => {})}
+              className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
+              title="Reveal scene.json — import it in Blender via the Cozyverse Bridge add-on (integrations/blender/)"
+            >
+              <FolderOpen size={12} /> Blender scene file
+            </button>
+          )}
+        </div>
       )}
+    </div>
+  );
+}
+
+function RuntimeCard() {
+  const setup = useSetupProgress();
+  const [status, setStatus] = useState<RuntimeStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => void decomposeRuntimeStatus().then(setStatus);
+  useEffect(refresh, []);
+  useEffect(() => {
+    if (setup?.done) {
+      setBusy(false);
+      refresh();
+    }
+  }, [setup?.done]);
+
+  const installing = busy || status?.installing || (setup != null && !setup.done);
+
+  if (installing) {
+    const pct = setup?.percent ?? 3;
+    return (
+      <div className="mb-3 rounded-md border border-accent-500/30 bg-accent-500/5 p-2.5 text-xs">
+        <div className="flex items-center gap-2 text-slate-300">
+          <Loader2 size={13} className="animate-spin text-accent-400" />
+          Setting up the full pipeline… {pct}%
+        </div>
+        <div className="mt-1.5 h-1 rounded-full bg-base-800 overflow-hidden">
+          <div className="h-full bg-accent-500 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        {setup?.message && (
+          <p className="mt-1 text-[10px] text-slate-500 truncate">{setup.message}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (setup?.error) {
+    return (
+      <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/5 p-2.5 text-xs text-red-400">
+        Setup failed: {setup.error}
+        <button
+          onClick={() => {
+            setBusy(true);
+            void setupDecomposeRuntime().catch(() => setBusy(false));
+          }}
+          className="ml-2 underline hover:text-red-300"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (status?.ready) {
+    return (
+      <p className="mb-3 flex items-center gap-1.5 text-[11px] text-emerald-500">
+        <CheckCircle2 size={12} /> Full pipeline ready — {status.detail}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-md border border-accent-500/30 bg-accent-500/5 p-2.5 text-xs">
+      <p className="text-slate-300">
+        Full decomposition (real object detection + views) needs a{" "}
+        <b className="text-slate-200">one-time ~3 GB setup</b> — PyTorch, the segmentation
+        models, into an isolated environment Cozyverse manages.
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          onClick={() => {
+            setBusy(true);
+            void setupDecomposeRuntime().catch(() => setBusy(false));
+          }}
+          className="px-3 py-1 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText"
+        >
+          Set it up
+        </button>
+        <span className="text-slate-500">
+          or tick <b className="text-slate-400">Stub mode</b> for a no-setup quick run.
+        </span>
+      </div>
     </div>
   );
 }
@@ -273,6 +376,8 @@ export function DecomposePanel() {
           Stub mode
         </label>
       </div>
+
+      {!stub && <RuntimeCard />}
 
       {jobs.length === 0 ? (
         <p className="text-xs text-slate-500">
