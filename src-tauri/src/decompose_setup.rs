@@ -67,8 +67,8 @@ pub async fn decompose_runtime_status() -> RuntimeStatus {
             let gpu = v.get("gpu").and_then(|g| g.as_str()).map(str::to_string);
             let detail = if ok {
                 match &gpu {
-                    Some(g) => format!("Ready — {g}"),
-                    None => "Ready (no CUDA GPU — will be slow)".into(),
+                    Some(g) => g.clone(),
+                    None => "no CUDA GPU — will be slow".into(),
                 }
             } else {
                 v.get("err")
