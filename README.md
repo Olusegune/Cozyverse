@@ -85,6 +85,41 @@ Local image conditioning for fal models works by passing a base64 data URI direc
 `image_url`/`image_urls` input — fal's API accepts this in place of a hosted URL, so no separate
 upload step is needed for image-to-image, image-to-video, or edit requests.
 
+## Decompose & Send to 3D
+
+Each image card in **Image Studio** has a **Decompose & Send to 3D** button. It splits the picture
+into its separate objects and turns each one into a 3D model, using **Tripo** and **Meshy** (add a
+key for either in Settings — rows are labelled "Tripo" / "Meshy").
+
+The flow, two-step so nothing paid runs by accident:
+
+1. **Segment.** A Python subprocess (`decompose_pipeline.py`) detects the objects, cuts each one
+   out on a white background, and — for the Quality path — synthesizes four orthographic views.
+   Full mode uses Grounded-SAM + Zero123++ on the GPU; `--stub` mode (panel toggle) does a
+   Pillow-only crop with no models, for testing the wiring.
+2. **Confirm.** The panel shows how many objects were found and how many paid generations that
+   implies. Pressing **Send to 3D** starts the fan-out; **Discard** costs nothing.
+3. **Model.** Per object, up to four jobs run in parallel — Tripo + Meshy, each on a **Fast** path
+   (perspective crop → single-image) and a **Quality** path (4 views → multi-view). Finished GLBs
+   download to `assets/models/`. Progress streams live into the panel.
+
+Backend: `src-tauri/src/decompose.rs` (commands `decompose_image`, `submit_decomposition`,
+`get_decomposition`, `list_decompositions`, `decompose_provider_keys`). Job state is mirrored to
+`<project>/decompositions.json`. An identical re-run is de-duplicated against a content hash rather
+than re-billed.
+
+The Tripo/Meshy transport is the **`modelforge-core`** crate (`../crates/modelforge-core`,
+lifted from ModelForge), so this app and ModelForge stay identical on upload handling, endpoint
+versions, and status parsing. Default models: Tripo `v3.1-20260211`, Meshy `meshy-7`; overridable
+per run, with `meshyExtra` / `tripoExtra` raw-param pass-throughs for anything not surfaced as an
+option.
+
+**Requires** Python on PATH (`python`, override with `COZY_PYTHON`) plus, for the full pipeline,
+`pip install torch transformers accelerate diffusers pillow numpy`. Stub mode needs only Pillow.
+The script path is resolved next to the executable or via `COZY_DECOMPOSE_SCRIPT`.
+
+**Step-by-step tutorial with screenshots:** [`docs/decompose-to-3d-tutorial/`](docs/decompose-to-3d-tutorial/README.md).
+
 ## Architecture
 
 - **Tauri 2** (Rust backend + native webview) — no Electron, no bundled Chromium.
@@ -95,6 +130,8 @@ upload step is needed for image-to-image, image-to-video, or edit requests.
     packaging.
   - `providers.rs` — API key storage, connection checks, and the submit → poll → result generation
     job lifecycle for real providers.
+  - `decompose.rs` — the Decompose & Send to 3D pipeline: Python subprocess bridge, Tripo/Meshy
+    fan-out (via the `modelforge-core` crate), job state, progress events.
 - **Continuity engine** (`src/lib/continuity.ts`) is the one place prompts get built — it combines
   the World Bible with whatever's being requested (variant controls, motion description, audio
   kind) into a `GenerationIntent`. Providers never see the World Bible directly.

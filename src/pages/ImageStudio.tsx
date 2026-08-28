@@ -2,7 +2,7 @@
 import { Boxes, ChevronDown, Download, Expand, Heart, ImagePlus, Loader2, Sparkles, Star, Trash2, Wand2 } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { DecomposePanel } from "../components/DecomposePanel";
-import { startDecompose } from "../lib/decompose";
+import { getStubMode, startDecompose } from "../lib/decompose";
 import { buildEditInstruction, buildImageIntent, defaultVariantControls, type ImageVariantControls, type ShotControls } from "../lib/continuity";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
@@ -73,7 +73,12 @@ export function ImageStudioPage() {
     try {
       // submit:false → segment now, then the panel shows the object count and
       // cost estimate and the user confirms the (paid) 3D fan-out.
-      await startDecompose(dirName, asset.filePath, { submit: false, qualityPath: true });
+      // stub → skip the GPU pipeline (Pillow-only), for shaking out the wiring.
+      await startDecompose(dirName, asset.filePath, {
+        submit: false,
+        qualityPath: true,
+        stub: getStubMode(),
+      });
     } catch (error) {
       setDecomposeError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -609,17 +614,6 @@ export function ImageStudioPage() {
                         >
                           <Expand size={13} />
                         </button>
-                        <button
-                          title="Decompose & Send to 3D"
-                          disabled={decomposingAssetId === asset.id}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDecompose(asset);
-                          }}
-                          className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 text-white disabled:opacity-50"
-                        >
-                          {decomposingAssetId === asset.id ? <Loader2 size={13} className="animate-spin" /> : <Boxes size={13} />}
-                        </button>
                       </div>
                     </div>
                     <div className="p-2.5 flex items-center justify-between gap-2">
@@ -636,6 +630,19 @@ export function ImageStudioPage() {
                         </button>
                       </div>
                     </div>
+                    <button
+                      title="Break this image into parts and generate 3D models with Tripo & Meshy"
+                      disabled={decomposingAssetId === asset.id}
+                      onClick={() => void handleDecompose(asset)}
+                      className="w-full flex items-center justify-center gap-1.5 border-t border-base-700 py-2 text-xs text-slate-300 hover:bg-base-800 hover:text-white disabled:opacity-50 transition"
+                    >
+                      {decomposingAssetId === asset.id ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Boxes size={13} />
+                      )}
+                      Decompose &amp; Send to 3D
+                    </button>
                   </div>
                 );
               })}

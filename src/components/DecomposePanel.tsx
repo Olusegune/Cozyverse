@@ -9,8 +9,10 @@ import {
   isHidden,
   isJobActive,
   jobProgress,
+  setStubMode,
   submitDecomposition,
   useDecompositions,
+  useStubMode,
   type DecomposeJob,
   type ModelJob,
 } from "../lib/decompose";
@@ -176,6 +178,7 @@ function JobCard({ job, providerCount }: { job: DecomposeJob; providerCount: num
 export function DecomposePanel() {
   const dirName = useAppStore((s) => s.dirName);
   const allJobs = useDecompositions();
+  const stub = useStubMode();
   const [providerCount, setProviderCount] = useState(1);
 
   useEffect(() => {
@@ -192,19 +195,35 @@ export function DecomposePanel() {
     () => allJobs.filter((j) => !isHidden(j.id)).slice(0, 4),
     [allJobs],
   );
-  if (jobs.length === 0) return null;
 
   return (
     <div className="mt-6 rounded-xl border border-base-700 bg-base-900 p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Boxes size={15} className="text-accent-400" />
-        <h3 className="text-sm font-medium text-slate-200">Decompose &amp; Send to 3D</h3>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Boxes size={15} className="text-accent-400" />
+          <h3 className="text-sm font-medium text-slate-200">Decompose &amp; Send to 3D</h3>
+        </div>
+        <label
+          className="flex items-center gap-1.5 text-[11px] text-slate-400 select-none"
+          title="Skip the GPU pipeline — Pillow-only crop, one asset, no ortho views. For shaking out the command/event wiring before spending on the real pipeline. The 3D providers are still called."
+        >
+          <input type="checkbox" checked={stub} onChange={(e) => setStubMode(e.target.checked)} />
+          Stub mode
+        </label>
       </div>
-      <div className="space-y-2.5">
-        {jobs.map((job) => (
-          <JobCard key={job.id} job={job} providerCount={providerCount} />
-        ))}
-      </div>
+
+      {jobs.length === 0 ? (
+        <p className="text-xs text-slate-500">
+          Click the <span className="text-slate-400">cube</span> icon on any image above to
+          decompose it. {stub ? "Stub mode is on — no GPU pipeline, one placeholder asset." : null}
+        </p>
+      ) : (
+        <div className="space-y-2.5">
+          {jobs.map((job) => (
+            <JobCard key={job.id} job={job} providerCount={providerCount} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

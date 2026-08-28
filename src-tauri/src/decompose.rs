@@ -453,7 +453,10 @@ pub async fn decompose_image(
     if !source.is_file() {
         return Err("That image file was not found in the project".into());
     }
-    if options.active_providers().is_empty() {
+    // Segmentation is local and free — it only needs a provider key once you
+    // actually press "Send to 3D". The one exception is a one-shot call
+    // (`submit: true`), which would chain straight into the paid fan-out.
+    if options.submit && options.active_providers().is_empty() {
         return Err(
             "Connect a Tripo or Meshy API key in Settings before decomposing to 3D.".into(),
         );

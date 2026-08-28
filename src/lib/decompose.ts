@@ -213,3 +213,28 @@ export function hideJob(id: string) {
 export function isHidden(id: string): boolean {
   return hidden.has(id);
 }
+
+// ---- stub-mode toggle (module-level so the panel sets it and Image Studio reads it) ----
+
+let stubMode = false;
+const stubListeners = new Set<() => void>();
+
+export function getStubMode(): boolean {
+  return stubMode;
+}
+
+export function setStubMode(value: boolean) {
+  stubMode = value;
+  stubListeners.forEach((l) => l());
+}
+
+export function useStubMode(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      stubListeners.add(cb);
+      return () => stubListeners.delete(cb);
+    },
+    () => stubMode,
+    () => stubMode,
+  );
+}

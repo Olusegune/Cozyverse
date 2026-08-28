@@ -39,6 +39,15 @@ const SECTIONS: Array<{ title: string; body: string[] }> = [
     ],
   },
   {
+    title: "Decompose & Send to 3D",
+    body: [
+      "Every image card in Image Studio has a \"Decompose & Send to 3D\" button. It breaks the picture into its separate objects (furniture, decor, props) and turns each one into a 3D model.",
+      "It runs two ways at once: a Fast path (the object's crop straight to a single-image 3D model) and a Quality path (four synthesized orthographic views to a multi-view model). Both go to Tripo and Meshy in parallel — up to four models per object.",
+      "Add a Tripo and/or Meshy API key in Settings first. After segmenting, the panel shows how many objects were found and how many paid generations that means — nothing is sent until you press Send to 3D.",
+      "Stub mode (toggle in the panel) skips the local pipeline and uses a single placeholder crop — for testing the wiring without the GPU step. Finished GLB files land in the project's assets/models folder.",
+    ],
+  },
+  {
     title: "Nothing is ever silently lost",
     body: [
       "Deleting an asset or a whole Cozyverse moves it to a _trash folder next to it rather than deleting it outright — always recoverable from disk.",
