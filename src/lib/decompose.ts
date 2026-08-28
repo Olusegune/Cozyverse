@@ -119,6 +119,11 @@ export async function decomposeProviderKeys(): Promise<Record<string, boolean>> 
   return invoke<Record<string, boolean>>("decompose_provider_keys");
 }
 
+/** Open the project's assets/models/ folder (finished GLBs) in Explorer. */
+export async function revealDecomposeOutput(dirName: string): Promise<void> {
+  await invoke("reveal_decompose_output", { dirName });
+}
+
 // ---- live snapshot store ------------------------------------------------
 
 const jobs = new Map<string, DecomposeJob>();

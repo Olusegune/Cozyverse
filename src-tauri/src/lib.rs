@@ -592,6 +592,7 @@ pub fn run() {
             decompose::get_decomposition,
             decompose::list_decompositions,
             decompose::decompose_provider_keys,
+            decompose::reveal_decompose_output,
             app_version,
         ])
         .run(tauri::generate_context!())

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { AlertTriangle, Boxes, CheckCircle2, FolderOpen, Loader2, X, XCircle } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import {
   decomposeProviderKeys,
@@ -9,6 +9,7 @@ import {
   isHidden,
   isJobActive,
   jobProgress,
+  revealDecomposeOutput,
   setStubMode,
   submitDecomposition,
   useDecompositions,
@@ -143,6 +144,7 @@ function JobCard({
   job: DecomposeJob;
   providerKeys: Record<string, boolean>;
 }) {
+  const dirName = useAppStore((s) => s.dirName);
   const { done, total } = jobProgress(job);
   const pct =
     job.status === "done"
@@ -170,7 +172,18 @@ function JobCard({
           )}
           <span className="text-xs text-slate-300 truncate">{job.imagePath}</span>
         </div>
-        <span className="text-[11px] text-slate-500 shrink-0">{stageLine(job)}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] text-slate-500">{stageLine(job)}</span>
+          {!isJobActive(job) && (
+            <button
+              onClick={() => hideJob(job.id)}
+              title="Dismiss"
+              className="text-slate-600 hover:text-slate-300"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-2 h-1 rounded-full bg-base-800 overflow-hidden">
@@ -212,6 +225,15 @@ function JobCard({
             </div>
           ))}
         </div>
+      )}
+
+      {job.assets.some((a) => a.models.some((m) => m.glbPath)) && (
+        <button
+          onClick={() => dirName && void revealDecomposeOutput(dirName)}
+          className="mt-2 flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
+        >
+          <FolderOpen size={12} /> Open the models folder
+        </button>
       )}
     </div>
   );

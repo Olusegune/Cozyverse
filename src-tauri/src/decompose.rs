@@ -419,6 +419,26 @@ pub async fn decompose_provider_keys() -> HashMap<String, bool> {
     ])
 }
 
+/// Open the project's `assets/models/` folder (where finished GLBs land) in
+/// Explorer. There is no in-app 3D viewer yet, so this is how you get to them.
+#[tauri::command]
+pub fn reveal_decompose_output(app: AppHandle, dir_name: String) -> Result<(), String> {
+    let dir = crate::project_path(&app, &dir_name)?
+        .join("assets")
+        .join("models");
+    let _ = fs::create_dir_all(&dir);
+    let mut cmd = std::process::Command::new("explorer");
+    cmd.arg(&dir);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not open Explorer: {e}"))
+}
+
 #[tauri::command]
 pub fn list_decompositions(app: AppHandle, dir_name: String) -> Result<Vec<DecomposeJob>, String> {
     let project_dir = crate::project_path(&app, &dir_name)?;
