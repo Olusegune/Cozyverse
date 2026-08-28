@@ -37,13 +37,17 @@ function ModelViewerImpl({
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444455, 2.2));
-    const key = new THREE.DirectionalLight(0xffffff, 2.0);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x505060, 3.2));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const key = new THREE.DirectionalLight(0xffffff, 3.0);
     key.position.set(3, 5, 4);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.8);
+    const fill = new THREE.DirectionalLight(0xffffff, 1.4);
     fill.position.set(-4, 2, -3);
     scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffffff, 1.0);
+    rim.position.set(0, 3, -5);
+    scene.add(rim);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -55,7 +59,22 @@ function ModelViewerImpl({
     const root = new THREE.Group();
     scene.add(root);
 
-    new GLTFLoader().load(
+    const loader = new GLTFLoader();
+    // A .glb is self-contained. A .gltf pulls a sibling .bin + textures by
+    // relative path — but Tauri's asset URL percent-encodes the whole file path
+    // into one opaque segment, so GLTFLoader's default "everything up to the last
+    // slash" base is just "http://asset.localhost/". Point it at the real folder
+    // (kept %2F-encoded) so `base + "foo.bin"` decodes to the right file.
+    if (/\.gltf(\?|#|$)/i.test(src)) {
+      const enc = src.lastIndexOf("%2F");
+      const raw = src.lastIndexOf("/");
+      const cut = Math.max(enc, raw);
+      if (cut > 0) {
+        loader.setResourcePath(src.slice(0, cut + (cut === enc ? 3 : 1)));
+      }
+    }
+
+    loader.load(
       src,
       (gltf) => {
         if (disposed) return;
