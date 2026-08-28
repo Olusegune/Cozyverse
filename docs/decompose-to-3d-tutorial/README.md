@@ -88,20 +88,31 @@ When it finishes, the job card shows **N object(s) found — pick a path**.
 
 ## Step 5 — Pick a path
 
-### Image path (free)
+### Image path
 
-Press **Download image pack (.zip)**. Choose where to save it. Inside:
+A `.zip` of every object, for any external image‑to‑3D service. Two buttons:
+
+**Download image pack (.zip)** — free, instant. The pipeline's own output,
+each image normalised to a 1024×1024 white canvas:
 
 ```
 scene/original.<ext>                 the source image
 objects/00_sofa/perspective.png      the object cut out on white
-objects/00_sofa/front.png back.png left.png right.png   (Full pipeline only)
+objects/00_sofa/front.png back.png left.png right.png   (Full pipeline + 4 views only)
 objects/01_lamp/…
 manifest.json                        object list + bounding boxes
 ```
 
-Feed these into any image‑to‑3D service. Nothing is sent anywhere by Cozyverse;
-nothing is billed.
+**AI turnaround · ~N imgs (paid)** — re‑renders **all five** views per object
+(perspective + front/back/left/right) through an image model (**Gemini**
+nano‑banana, or **OpenAI** gpt‑image‑2 — whichever key you have) as large, clean
+images on a plain white background. `perspective`/`front` track the object
+closely; `back`/`left`/`right` are *inferred* from the front and won't match
+perfectly. The button shows the image count up front; a progress bar runs while
+it works. Set `COZY_DECOMPOSE_BG` to a hex (e.g. `ECEAE6`) for a neutral‑grey
+background instead of white.
+
+Either way, nothing is sent to Tripo/Meshy and no 3D credits are used.
 
 ### 3D path (paid)
 

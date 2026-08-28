@@ -132,14 +132,71 @@ export async function decomposeScenePath(dirName: string, jobId: string): Promis
   return invoke<string>("decompose_scene_path", { dirName, jobId });
 }
 
-/** The "image path": save a .zip of the job's decomposition images (perspective
- * + front/back/left/right per object + the scene + a manifest) via a Save dialog.
- * Returns the saved path, or null if cancelled. No providers, no spend. */
+/** The "image path": save a .zip of a job's decomposition images via a Save
+ * dialog. Returns the saved path, or null if cancelled.
+ * - default: the pipeline's own outputs (cutout + any Zero123++ views). Free.
+ * - `aiViews`: regenerate all five views per object (perspective + front/back/
+ *   left/right) through an image model on a white background. **Paid**; streams
+ *   `decompose://export` progress (see `useExportProgress`). */
 export async function exportDecomposePack(
   dirName: string,
   jobId: string,
+  aiViews = false,
 ): Promise<string | null> {
-  return invoke<string | null>("decompose_export_pack", { dirName, jobId });
+  return invoke<string | null>("decompose_export_pack", {
+    dirName,
+    jobId,
+    options: aiViews ? { aiViews: true } : null,
+  });
+}
+
+export type ExportPackEstimate = {
+  objects: number;
+  imagesPerObject: number;
+  totalImages: number;
+  provider: string | null;
+};
+
+/** How many paid image generations the AI turnaround pack would make, + which
+ * provider (null = no Gemini/OpenAI key). */
+export async function exportPackEstimate(
+  dirName: string,
+  jobId: string,
+): Promise<ExportPackEstimate> {
+  return invoke<ExportPackEstimate>("decompose_export_pack_estimate", { dirName, jobId });
+}
+
+export type ExportProgress = {
+  jobId: string;
+  done: number;
+  total: number;
+  message: string;
+};
+
+const exportListeners = new Set<() => void>();
+let exportSnapshot: ExportProgress | null = null;
+let exportListening = false;
+
+function ensureExportListening() {
+  if (exportListening) return;
+  exportListening = true;
+  void listen<ExportProgress>("decompose://export", (e) => {
+    exportSnapshot = e.payload;
+    exportListeners.forEach((l) => l());
+  });
+}
+
+/** Latest AI-turnaround export progress (any job), or null. */
+export function useExportProgress(): ExportProgress | null {
+  ensureExportListening();
+  return useSyncExternalStore(
+    (cb) => {
+      exportListeners.add(cb);
+      return () => exportListeners.delete(cb);
+    },
+    () => exportSnapshot,
+    () => exportSnapshot,
+  );
 }
 
 // ---- full-pipeline runtime (torch/transformers) --------------------------

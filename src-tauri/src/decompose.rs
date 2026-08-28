@@ -1064,17 +1064,67 @@ pub fn decompose_scene_path(
     Ok(path.to_string_lossy().into_owned())
 }
 
-/// The "image path": zip up a job's decomposition images — the perspective
-/// cutout plus front/back/left/right views per object (whichever the pipeline
-/// produced), the original scene image, and a manifest — and let the user save
-/// it wherever they want. No providers, no spend. Returns the saved path, or
-/// None if the user cancels the dialog.
+const EXPORT_EVENT: &str = "decompose://export";
+
+/// The five per-object views the pack ships. `slug` is the file/manifest key;
+/// `angle` is the phrase dropped into the image-model prompt for the AI pack.
+const PACK_VIEWS: [(&str, &str); 5] = [
+    ("perspective", "a clean three-quarter hero angle, slightly above eye level"),
+    ("front", "a straight-on front view, camera level with the object"),
+    ("back", "the view from directly behind the object"),
+    ("left", "the left-side profile, camera level with the object"),
+    ("right", "the right-side profile, camera level with the object"),
+];
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPackOptions {
+    /// Regenerate all five views per object with an image model (Gemini / OpenAI,
+    /// **paid**) instead of shipping the local cutout + Zero123++ tiles. Gives
+    /// large, clean, consistent renders on a plain background — but the side and
+    /// back views are inferred, not observed.
+    #[serde(default)]
+    pub ai_views: bool,
+}
+
+/// How many paid image generations `decompose_export_pack` with `aiViews` would
+/// make for a job, and which provider — so the UI can warn before spending.
+#[tauri::command]
+pub fn decompose_export_pack_estimate(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+) -> Result<Value, String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let job = load_state(&project_dir)
+        .jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+    Ok(json!({
+        "objects": job.assets.len(),
+        "imagesPerObject": PACK_VIEWS.len(),
+        "totalImages": job.assets.len() * PACK_VIEWS.len(),
+        "provider": crate::providers::image_edit_provider(),
+    }))
+}
+
+/// The "image path": zip up a job's decomposition images for use in any external
+/// image-to-3D tool. Two modes:
+///   * default — the pipeline's own outputs: the perspective cutout plus any
+///     Zero123++ side views, verbatim. Free, instant.
+///   * `aiViews` — regenerate all five views (perspective + front/back/left/right)
+///     per object through an image model on a clean background. **Paid**; streams
+///     `decompose://export` progress.
+/// Returns the saved path, or None if the user cancels the save dialog.
 #[tauri::command]
 pub async fn decompose_export_pack(
     app: AppHandle,
     dir_name: String,
     job_id: String,
+    options: Option<ExportPackOptions>,
 ) -> Result<Option<String>, String> {
+    let ai_views = options.unwrap_or_default().ai_views;
     let project_dir = crate::project_path(&app, &dir_name)?;
     let job = load_state(&project_dir)
         .jobs
@@ -1084,12 +1134,16 @@ pub async fn decompose_export_pack(
     if job.assets.is_empty() {
         return Err("This job has no decomposed images.".into());
     }
+    if ai_views && crate::providers::image_edit_provider().is_none() {
+        return Err("The AI turnaround pack needs a Gemini or OpenAI API key — add one in Settings.".into());
+    }
 
     let assets_root = project_dir.join("assets");
     let default_name = format!(
-        "cozyverse-decompose-{}-{}obj.zip",
+        "cozyverse-decompose-{}-{}obj{}.zip",
         job_id_short(&job.id),
-        job.assets.len()
+        job.assets.len(),
+        if ai_views { "-ai" } else { "" }
     );
     let dest = match rfd::FileDialog::new()
         .add_filter("Zip archive", &["zip"])
@@ -1114,20 +1168,25 @@ pub async fn decompose_export_pack(
         std::io::Write::write_all(zip, &bytes).map_err(|e| e.to_string())?;
         Ok(true)
     };
+    let add_bytes = |zip: &mut zip::ZipWriter<fs::File>, name: &str, bytes: &[u8]| -> Result<(), String> {
+        zip.start_file(name, opts).map_err(|e| e.to_string())?;
+        std::io::Write::write_all(zip, bytes).map_err(|e| e.to_string())?;
+        Ok(())
+    };
 
     let mut added = 0usize;
     let source = assets_root.join(&job.image_path);
     if source.is_file() {
-        let ext = source
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("png");
+        let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("png");
         if add(&mut zip, &format!("scene/original.{ext}"), &source)? {
             added += 1;
         }
     }
 
+    let total_ai = job.assets.len() * PACK_VIEWS.len();
+    let mut done_ai = 0usize;
     let mut manifest_objects = Vec::new();
+
     for (i, a) in job.assets.iter().enumerate() {
         let slug: String = a
             .class
@@ -1137,27 +1196,72 @@ pub async fn decompose_export_pack(
         let folder = format!("objects/{i:02}_{slug}");
         let mut files = Map::new();
 
-        if add(
-            &mut zip,
-            &format!("{folder}/perspective.png"),
-            &assets_root.join(&a.perspective_image),
-        )? {
-            files.insert("perspective".into(), json!("perspective.png"));
-            added += 1;
-        }
-        for (name, rel) in [
-            ("front", &a.ortho_views.front),
-            ("back", &a.ortho_views.back),
-            ("left", &a.ortho_views.left),
-            ("right", &a.ortho_views.right),
-        ] {
-            if let Some(rel) = rel {
-                if add(&mut zip, &format!("{folder}/{name}.png"), &assets_root.join(rel))? {
-                    files.insert(name.into(), json!(format!("{name}.png")));
-                    added += 1;
+        if ai_views {
+            // Anchor every view on the pipeline's cutout of this object.
+            let subject = match file_to_data_uri(&assets_root.join(&a.perspective_image)) {
+                Ok(uri) => uri,
+                Err(e) => {
+                    eprintln!("decompose export: no cutout for {}: {e}", a.id);
+                    done_ai += PACK_VIEWS.len();
+                    continue;
+                }
+            };
+            for (slug_name, angle) in PACK_VIEWS {
+                let _ = app.emit(
+                    EXPORT_EVENT,
+                    json!({
+                        "jobId": job.id, "done": done_ai, "total": total_ai,
+                        "message": format!("{} — {slug_name}", a.class),
+                    }),
+                );
+                let prompt = format!(
+                    "Studio product render of the {class} shown in the reference image — {angle}. \
+                     The subject is centred and fully in frame on a plain, seamless pure-white \
+                     background, soft even lighting, no cast shadow, no other objects, no text or \
+                     watermark. Preserve the exact colours, materials, proportions and details of \
+                     the reference. Square image.",
+                    class = a.class,
+                );
+                match crate::providers::edit_subject_image(&prompt, &subject).await {
+                    Ok(data_uri) => match data_uri
+                        .split_once(";base64,")
+                        .and_then(|(_, b)| base64::engine::general_purpose::STANDARD.decode(b).ok())
+                    {
+                        Some(bytes) => {
+                            add_bytes(&mut zip, &format!("{folder}/{slug_name}.png"), &bytes)?;
+                            files.insert(slug_name.into(), json!(format!("{slug_name}.png")));
+                            added += 1;
+                        }
+                        None => eprintln!("decompose export: {} {slug_name}: unreadable image data", a.id),
+                    },
+                    Err(e) => eprintln!("decompose export: {} {slug_name} failed: {e}", a.id),
+                }
+                done_ai += 1;
+            }
+        } else {
+            if add(
+                &mut zip,
+                &format!("{folder}/perspective.png"),
+                &assets_root.join(&a.perspective_image),
+            )? {
+                files.insert("perspective".into(), json!("perspective.png"));
+                added += 1;
+            }
+            for (name, rel) in [
+                ("front", &a.ortho_views.front),
+                ("back", &a.ortho_views.back),
+                ("left", &a.ortho_views.left),
+                ("right", &a.ortho_views.right),
+            ] {
+                if let Some(rel) = rel {
+                    if add(&mut zip, &format!("{folder}/{name}.png"), &assets_root.join(rel))? {
+                        files.insert(name.into(), json!(format!("{name}.png")));
+                        added += 1;
+                    }
                 }
             }
         }
+
         manifest_objects.push(json!({
             "id": a.id,
             "class": a.class,
@@ -1167,21 +1271,40 @@ pub async fn decompose_export_pack(
         }));
     }
 
-    if added == 0 {
-        drop(zip);
-        let _ = fs::remove_file(&dest);
-        return Err(
-            "None of this job's decomposition images are on disk any more — nothing to export.".into(),
+    if ai_views {
+        let _ = app.emit(
+            EXPORT_EVENT,
+            json!({ "jobId": job.id, "done": total_ai, "total": total_ai, "message": "packing" }),
         );
     }
 
+    if added == 0 {
+        drop(zip);
+        let _ = fs::remove_file(&dest);
+        return Err(if ai_views {
+            "Every AI view generation failed — check the API key and provider credit.".into()
+        } else {
+            "None of this job's decomposition images are on disk any more — nothing to export.".to_string()
+        });
+    }
+
+    let note = if ai_views {
+        "Every view was re-rendered by an image model on a white background. perspective/front = \
+         observed; back/left/right are inferred from the front and may not match perfectly. Feed \
+         these into any image-to-3D tool."
+    } else {
+        "perspective.png = the object cut out on white. front/back/left/right = Zero123++ \
+         synthesized views (present only when the full pipeline ran with side views on). Feed \
+         these into any image-to-3D tool."
+    };
     let manifest = serde_json::to_string_pretty(&json!({
         "app": "Cozyverse Studio",
         "job": job.id,
+        "mode": if ai_views { "ai-turnaround" } else { "pipeline" },
         "sourceImage": job.image_path,
         "objectCount": job.assets.len(),
         "objects": manifest_objects,
-        "note": "perspective.png = object cut out on white. front/back/left/right = synthesized orthographic views (present only when the full pipeline ran). Feed these into any image-to-3D tool.",
+        "note": note,
     }))
     .unwrap();
     zip.start_file("manifest.json", opts).map_err(|e| e.to_string())?;

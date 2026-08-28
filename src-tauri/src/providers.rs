@@ -466,6 +466,51 @@ async fn openai_edit_image(prompt: &str, aspect_ratio: &str, image_mime: &str, i
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
+/// Which image-edit-capable provider the decompose "AI turnaround" pack would
+/// use, if any: Gemini first (nano-banana — best identity preservation for the
+/// price), then OpenAI (gpt-image-2).
+pub(crate) fn image_edit_provider() -> Option<&'static str> {
+    if provider_key("gemini").is_ok() {
+        Some("gemini")
+    } else if provider_key("openai").is_ok() {
+        Some("openai")
+    } else {
+        None
+    }
+}
+
+/// One synchronous image-to-image call: subject image (`data:` URI) + prompt →
+/// a new image as a `data:` URI. Backs the decompose "AI turnaround" export,
+/// which needs a clean per-view render of each decomposed object.
+pub(crate) async fn edit_subject_image(
+    prompt: &str,
+    subject_data_uri: &str,
+) -> Result<String, String> {
+    match image_edit_provider() {
+        Some("gemini") => {
+            let key = provider_key("gemini")?;
+            let src = serde_json::json!({
+                "prompt": prompt,
+                "image_url": subject_data_uri,
+                "aspect_ratio": "1:1",
+            });
+            gemini_generate_image("gemini-3.1-flash-image", &src, &key).await
+        }
+        Some("openai") => {
+            let key = provider_key("openai")?;
+            let (mime, b64) = subject_data_uri
+                .strip_prefix("data:")
+                .and_then(|rest| rest.split_once(";base64,"))
+                .ok_or("Malformed subject image data URI")?;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .map_err(|e| format!("Could not decode the subject image: {e}"))?;
+            openai_edit_image(prompt, "1:1", mime, bytes, &key).await
+        }
+        _ => Err("AI turnaround needs a Gemini or OpenAI API key — add one in Settings.".into()),
+    }
+}
+
 /// Maps our generic "W:H" aspect ratio string to a provider's actual pixel size format
 /// (WaveSpeed's FLUX models want "width*height", e.g. "1024*1024").
 fn aspect_ratio_to_wavespeed_size(ratio: &str) -> &'static str {

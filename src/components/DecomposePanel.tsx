@@ -23,6 +23,8 @@ import {
   cancelJob,
   decomposeScenePath,
   exportDecomposePack,
+  exportPackEstimate,
+  useExportProgress,
   revealDecomposeOutput,
   setStubMode,
   setViewsMode,
@@ -69,6 +71,80 @@ function stageLine(job: DecomposeJob): string {
 }
 
 const ALL_PROVIDERS = ["tripo", "meshy"] as const;
+
+/** The two image-path exports — free (pipeline outputs) and paid (AI turnaround)
+ * — plus a live progress bar while the AI pack renders. Used in the confirm
+ * block and on finished jobs. */
+function ImagePackActions({ jobId, compact }: { jobId: string; compact?: boolean }) {
+  const dirName = useAppStore((s) => s.dirName);
+  const progress = useExportProgress();
+  const [est, setEst] = useState<{ totalImages: number; provider: string | null } | null>(null);
+  const [busy, setBusy] = useState<"free" | "ai" | null>(null);
+
+  useEffect(() => {
+    if (dirName) void exportPackEstimate(dirName, jobId).then(setEst).catch(() => {});
+  }, [dirName, jobId]);
+
+  const active = progress && progress.jobId === jobId && progress.done < progress.total;
+  const run = (aiViews: boolean) => {
+    if (!dirName) return;
+    setBusy(aiViews ? "ai" : "free");
+    void exportDecomposePack(dirName, jobId, aiViews)
+      .catch(() => {})
+      .finally(() => setBusy(null));
+  };
+
+  return (
+    <div className={compact ? "" : "mt-1.5"}>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => run(false)}
+          disabled={busy !== null}
+          className={
+            compact
+              ? "flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300 disabled:opacity-50"
+              : "px-3 py-1 rounded-md border border-accent-500/50 text-accent-300 hover:bg-accent-500/10 disabled:opacity-50"
+          }
+        >
+          {compact && <FolderOpen size={12} />}
+          {busy === "free" ? "Saving…" : compact ? "Image pack (.zip)" : "Download image pack (.zip)"}
+        </button>
+        <button
+          onClick={() => run(true)}
+          disabled={busy !== null || !!active || est?.provider == null}
+          title={
+            est?.provider == null
+              ? "Needs a Gemini or OpenAI API key (Settings)"
+              : `Re-render all 5 views per object as clean white-background images via ${est.provider}. ~${est.totalImages} paid image generations.`
+          }
+          className={
+            compact
+              ? "flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300 disabled:opacity-40"
+              : "px-3 py-1 rounded-md border border-accent-500/50 text-accent-300 hover:bg-accent-500/10 disabled:opacity-40"
+          }
+        >
+          {compact && <FolderOpen size={12} />}
+          {busy === "ai"
+            ? "Rendering…"
+            : `AI turnaround${est ? ` · ~${est.totalImages} imgs` : ""} (paid)`}
+        </button>
+      </div>
+      {active && (
+        <div className="mt-1.5">
+          <div className="h-1 rounded-full bg-base-800 overflow-hidden">
+            <div
+              className="h-full bg-accent-500 transition-all"
+              style={{ width: `${Math.round((progress!.done / progress!.total) * 100)}%` }}
+            />
+          </div>
+          <p className="mt-0.5 text-[10px] text-slate-500 truncate">
+            {progress!.done}/{progress!.total} — {progress!.message}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ConfirmBlock({
   job,
@@ -122,19 +198,17 @@ function ConfirmBlock({
       {/* ---- Image path -------------------------------------------------- */}
       <div className="mt-2.5">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Image path — free
+          Image path
         </div>
         <p className="mt-0.5 text-slate-400">
-          Download every object as a PNG cutout{hasViews ? " plus front/back/left/right views" : ""}{" "}
-          — a .zip for your own image-to-3D tool. No providers, nothing billed.
+          A .zip of every object for your own image-to-3D tool.{" "}
+          <b className="text-slate-300">Free</b>: the pipeline's cutout
+          {hasViews ? " + Zero123++ side views" : ""}, as-is.{" "}
+          <b className="text-slate-300">AI turnaround</b>: all five views per object re-rendered
+          large and clean on white by an image model — perspective/front are observed, back/sides
+          are inferred. Paid.
         </p>
-        <button
-          onClick={() => dirName && void exportDecomposePack(dirName, job.id).catch(() => {})}
-          disabled={busy}
-          className="mt-1.5 px-3 py-1 rounded-md border border-accent-500/50 text-accent-300 hover:bg-accent-500/10 disabled:opacity-50"
-        >
-          Download image pack (.zip)
-        </button>
+        <ImagePackActions jobId={job.id} />
       </div>
 
       {/* ---- 3D path --------------------------------------------------- */}
@@ -333,19 +407,16 @@ function JobCard({
               </button>
             )}
             <button
-              onClick={() => dirName && void exportDecomposePack(dirName, job.id).catch(() => {})}
-              className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
-              title="Save a .zip of the decomposition images (perspective + front/back/left/right per object) for any image-to-3D tool"
-            >
-              <FolderOpen size={12} /> Image pack (.zip)
-            </button>
-            <button
               onClick={() => setShowUsage((v) => !v)}
               className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300"
             >
               {showUsage ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               How to use these files
             </button>
+          </div>
+
+          <div className="mt-1.5">
+            <ImagePackActions jobId={job.id} compact />
           </div>
 
           {showUsage && (

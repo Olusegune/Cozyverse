@@ -57,8 +57,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+
+# Every cutout / view is composited onto a square canvas of this size so the
+# pack is usable straight in an image-to-3D tool (they want a big, centred
+# subject on a flat background). Override with COZY_DECOMPOSE_CANVAS.
+CANVAS = int(os.environ.get("COZY_DECOMPOSE_CANVAS", "1024"))
+SUBJECT_FILL = 0.88  # fraction of the canvas the subject's long edge fills
+
+def _bg_color() -> tuple[int, int, int]:
+    """Background for every composed image. White by default (what Tripo/Meshy
+    ask for); set COZY_DECOMPOSE_BG to a hex like 'ECEAE6' for a neutral grey."""
+    raw = os.environ.get("COZY_DECOMPOSE_BG", "").strip().lstrip("#")
+    if len(raw) == 6:
+        try:
+            return tuple(int(raw[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+        except ValueError:
+            pass
+    return (255, 255, 255)
+
+BG = _bg_color()
 
 # Vocabulary used both as GroundingDINO prompt and CLIP label set. Tuned for
 # cozy interior / diorama scenes; extend freely.
@@ -509,12 +529,23 @@ def _clean_mask(mask_set, box, H, W):
     return np.array(im) > 127
 
 
-def _square_pad(img):
+def _square_pad(img, size: int = CANVAS, fill: float = SUBJECT_FILL):
+    """Centre `img` on a `size`×`size` `BG` canvas, scaling its long edge to
+    `fill` of the canvas (high-quality resample). Small inputs (e.g. Zero123++'s
+    ~320 px tiles) are upscaled so every file in the pack is a consistent, large,
+    ready-to-use image."""
     from PIL import Image
+
     w, h = img.size
-    s = max(w, h)
-    canvas = Image.new("RGB", (s, s), (255, 255, 255))
-    canvas.paste(img, ((s - w) // 2, (s - h) // 2))
+    if w == 0 or h == 0:
+        return Image.new("RGB", (size, size), BG)
+    lanczos = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+    target = max(1, int(size * fill))
+    scale = target / float(max(w, h))
+    new_w, new_h = max(1, round(w * scale)), max(1, round(h * scale))
+    resized = img.resize((new_w, new_h), lanczos)
+    canvas = Image.new("RGB", (size, size), BG)
+    canvas.paste(resized, ((size - new_w) // 2, (size - new_h) // 2))
     return canvas
 
 
