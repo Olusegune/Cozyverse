@@ -1,6 +1,25 @@
 # Design note — a third decompose path: "Asset Library"
 
-*Status: proposal, not built. 2026-08-28.*
+*Status: **Phase 1 shipped** 2026-08-28 (Poly Haven, CC0, text search). Phases 2–3
+below remain proposals.*
+
+## What Phase 1 actually does
+
+- Confirm panel gains an **Asset library — free (CC0)** section. Per detected
+  object: *Find a free asset* → a thumbnail strip of ranked Poly Haven matches →
+  pick one. It downloads (glTF + 1k textures) into `assets/library/<slug>/` and
+  attaches as a `provider: "library"` model on that object.
+- `scene.json` carries the library model under a `"library"` key, makes it the
+  `preferred` placement, and adds an `attribution` block per object plus a
+  top-level `credits` array.
+- `<project>/CREDITS.txt` is (re)written on every attach/detach.
+- The Blender bridge already imports `.gltf`; it now also prints the asset
+  credits after placement. No importer change was needed.
+- **Use N library assets & finish** ends a job on library picks alone — no
+  provider spend.
+- Ranking: class + a small synonym map matched against each asset's name (×3),
+  tags (×2), categories (×2), tie-broken by download count. `rug` currently
+  returns nothing — Poly Haven has no rug models; the UI says so.
 
 ## The idea
 

@@ -24,15 +24,21 @@ export type OrthoViews = {
 
 export type ModelJob = {
   key: string;
-  provider: "tripo" | "meshy" | string;
-  mode: "single-image" | "multi-view" | string;
-  pathKind: "fast" | "quality" | string;
+  provider: "tripo" | "meshy" | "library" | string;
+  mode: "single-image" | "multi-view" | "library" | string;
+  pathKind: "fast" | "quality" | "library" | string;
   status: ModelStatus;
   progress: number;
   taskId?: string | null;
   glbPath?: string | null;
   error?: string | null;
   finishedAt?: string | null;
+  // set only for provider === "library"
+  source?: string | null;
+  sourceUrl?: string | null;
+  author?: string | null;
+  license?: string | null;
+  licenseUrl?: string | null;
 };
 
 export type DecomposedAsset = {
@@ -199,6 +205,50 @@ export function useExportProgress(): ExportProgress | null {
     () => exportSnapshot,
     () => exportSnapshot,
   );
+}
+
+// ---- asset library (third path) -----------------------------------------
+
+export type LibraryCandidate = {
+  id: string; // "polyhaven:ArmChair_01"
+  source: string;
+  name: string;
+  thumbnailUrl: string;
+  author: string;
+  license: string;
+  licenseUrl: string;
+  sourceUrl: string;
+  polycount?: number | null;
+  score: number;
+};
+
+/** Ranked CC0 3D-asset matches for a detected object class (Poly Haven). */
+export async function librarySearch(objectClass: string): Promise<LibraryCandidate[]> {
+  return invoke<LibraryCandidate[]>("library_search", { objectClass });
+}
+
+/** Download a picked asset into assets/library/ and attach it to the object as a
+ * `library` model. Re-picking replaces the previous one. */
+export async function libraryAttach(
+  dirName: string,
+  jobId: string,
+  assetId: string,
+  candidateId: string,
+): Promise<void> {
+  await invoke("library_attach", { dirName, jobId, assetId, candidateId });
+}
+
+export async function libraryDetach(
+  dirName: string,
+  jobId: string,
+  assetId: string,
+): Promise<void> {
+  await invoke("library_detach", { dirName, jobId, assetId });
+}
+
+/** Finish a job on library picks alone — no provider spend. Needs ≥1 attached. */
+export async function libraryFinalize(dirName: string, jobId: string): Promise<void> {
+  await invoke("library_finalize", { dirName, jobId });
 }
 
 // ---- full-pipeline runtime (torch/transformers) --------------------------

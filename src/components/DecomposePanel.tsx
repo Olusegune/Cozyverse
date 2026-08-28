@@ -29,6 +29,11 @@ import {
   retryFailed,
   providerBalance,
   decomposeAssetUrl,
+  librarySearch,
+  libraryAttach,
+  libraryDetach,
+  libraryFinalize,
+  type LibraryCandidate,
   decomposeScenePath,
   exportDecomposePack,
   exportPackEstimate,
@@ -50,7 +55,7 @@ import {
   type RuntimeStatus,
 } from "../lib/decompose";
 
-const PATH_LABEL: Record<string, string> = { fast: "Fast", quality: "Quality" };
+const PATH_LABEL: Record<string, string> = { fast: "Fast", quality: "Quality", library: "Library" };
 
 function StatusDot({ status }: { status: ModelJob["status"] }) {
   if (status === "succeeded") return <CheckCircle2 size={13} className="text-emerald-400" />;
@@ -175,6 +180,125 @@ function AssetCutout({ asset, className }: { asset: DecomposedAsset; className?:
   ) : (
     <div className={`flex items-center justify-center bg-base-800 text-[9px] text-slate-500 ${className ?? ""}`}>
       {asset.class}
+    </div>
+  );
+}
+
+/** The third path: pull a ready-made CC0 model per object from Poly Haven. */
+function LibrarySection({ job }: { job: DecomposeJob }) {
+  const dirName = useAppStore((s) => s.dirName);
+  const [cands, setCands] = useState<Record<string, LibraryCandidate[] | "loading">>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const find = async (a: DecomposedAsset) => {
+    setCands((c) => ({ ...c, [a.id]: "loading" }));
+    try {
+      const results = await librarySearch(a.class);
+      setCands((c) => ({ ...c, [a.id]: results }));
+    } catch {
+      setCands((c) => ({ ...c, [a.id]: [] }));
+    }
+  };
+  const attachedCount = job.assets.filter((a) =>
+    a.models.some((m) => m.provider === "library"),
+  ).length;
+
+  const pick = async (a: DecomposedAsset, cand: LibraryCandidate) => {
+    if (!dirName) return;
+    setBusy(a.id);
+    try {
+      await libraryAttach(dirName, job.id, a.id, cand.id);
+      setCands((c) => {
+        const n = { ...c };
+        delete n[a.id];
+        return n;
+      });
+    } catch {
+      /* leave the strip open so they can retry */
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-md border-l-2 border-emerald-500/60 pl-2">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-400">
+        <Boxes size={12} /> Asset library — free (CC0)
+      </div>
+      <p className="mt-0.5 text-slate-400">
+        Attach a ready-made model for an object instead of generating it — clean topology, authored
+        materials, no spend. All CC0 (Poly Haven); a <b className="text-slate-300">CREDITS.txt</b> is
+        written to the project automatically.
+      </p>
+      <div className="mt-1.5 space-y-1.5">
+        {job.assets.map((a) => {
+          const attached = a.models.find((m) => m.provider === "library");
+          const list = cands[a.id];
+          return (
+            <div key={a.id} className="rounded border border-base-700 p-1.5">
+              <div className="flex items-center gap-2">
+                <AssetCutout asset={a} className="h-7 w-7 rounded shrink-0" />
+                <span className="capitalize text-slate-300">{a.class}</span>
+                {attached ? (
+                  <span className="ml-auto flex items-center gap-2 text-emerald-400">
+                    <CheckCircle2 size={12} />
+                    <span className="max-w-[120px] truncate" title={attached.author ?? undefined}>
+                      {attached.author ?? attached.source ?? "attached"}
+                    </span>
+                    <button
+                      onClick={() => dirName && void libraryDetach(dirName, job.id, a.id).catch(() => {})}
+                      className="text-slate-500 hover:text-slate-300"
+                    >
+                      remove
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => void find(a)}
+                    disabled={list === "loading"}
+                    className="ml-auto text-accent-400 hover:text-accent-300 disabled:opacity-50"
+                  >
+                    {list === "loading" ? "searching…" : "Find a free asset"}
+                  </button>
+                )}
+              </div>
+              {Array.isArray(list) && !attached && list.length > 0 && (
+                <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
+                  {list.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => void pick(a, c)}
+                      disabled={busy === a.id}
+                      title={`${c.name} · ${c.author} · ${c.license}${
+                        c.polycount ? ` · ${c.polycount.toLocaleString()} tris` : ""
+                      }`}
+                      className="w-16 shrink-0 rounded border border-base-700 hover:border-accent-500 disabled:opacity-50"
+                    >
+                      <img
+                        src={c.thumbnailUrl}
+                        alt={c.name}
+                        className="h-16 w-16 rounded-t bg-white object-cover"
+                      />
+                      <div className="truncate px-1 py-0.5 text-[9px] text-slate-400">{c.name}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {Array.isArray(list) && !attached && list.length === 0 && (
+                <p className="mt-1 text-[10px] text-slate-500">No CC0 match for “{a.class}”.</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {attachedCount > 0 && (
+        <button
+          onClick={() => dirName && void libraryFinalize(dirName, job.id).catch(() => {})}
+          className="mt-2 px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white"
+        >
+          Use {attachedCount} library asset{attachedCount > 1 ? "s" : ""} &amp; finish
+        </button>
+      )}
     </div>
   );
 }
@@ -415,11 +539,15 @@ function ConfirmBlock({
         </button>
       </div>
 
+      <div style={{ order: 3 }}>
+        <LibrarySection job={job} />
+      </div>
+
       <button
         onClick={() => hideJob(job.id, dirName ?? undefined)}
         disabled={busy}
         className="mt-3 text-left text-slate-500 hover:text-slate-300 disabled:opacity-50"
-        style={{ order: 3 }}
+        style={{ order: 4 }}
       >
         Discard this decomposition
       </button>
@@ -579,6 +707,22 @@ function JobCard({
               </div>
             </div>
           ))}
+
+          {(() => {
+            const lib = job.assets
+              .flatMap((a) => a.models)
+              .filter((m) => m.provider === "library");
+            return lib.length > 0 ? (
+              <p className="text-[10px] text-slate-500">
+                CC0 assets ({lib.length}) — attribution in the project's{" "}
+                <span className="text-slate-400">CREDITS.txt</span>:{" "}
+                {lib
+                  .map((m) => m.author)
+                  .filter((v, i, arr) => v && arr.indexOf(v) === i)
+                  .join(", ")}
+              </p>
+            ) : null;
+          })()}
 
           {previewKey && (
             <div className="rounded-md border border-base-700 bg-base-950 p-1.5">

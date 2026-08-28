@@ -80,8 +80,19 @@ class COZY_OT_import_scene(bpy.types.Operator):
         context.scene.collection.objects.link(parent)
 
         placed = 0
+        credits = []
         for obj in data.get("objects", []):
             models = obj.get("models", {})
+            attr = obj.get("attribution")
+            if attr:
+                credits.append(
+                    "%s (%s, %s)"
+                    % (
+                        attr.get("author", "?"),
+                        attr.get("source", "?"),
+                        attr.get("license", "CC0"),
+                    )
+                )
             key = obj.get("preferred") or (next(iter(models), None))
             glb = models.get(key) if key else None
             if not glb or not os.path.isfile(glb):
@@ -112,7 +123,12 @@ class COZY_OT_import_scene(bpy.types.Operator):
             imported.location.z -= mn.z  # sit on the floor
             placed += 1
 
-        self.report({"INFO"}, "Cozyverse: placed %d object(s)" % placed)
+        msg = "Cozyverse: placed %d object(s)" % placed
+        if credits:
+            uniq = sorted(set(credits))
+            msg += " · library assets: " + ", ".join(uniq)
+            print("[Cozyverse] Third-party assets in this scene:\n  " + "\n  ".join(uniq))
+        self.report({"INFO"}, msg)
         return {"FINISHED"}
 
 

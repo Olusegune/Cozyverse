@@ -180,6 +180,17 @@ pub struct ModelJob {
     pub glb_path: Option<String>,
     pub error: Option<String>,
     pub finished_at: Option<String>,
+    // --- attribution, set only for `provider == "library"` picks ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -889,11 +900,12 @@ async fn fan_out(
     let tripo_version = opts.resolved_tripo_version();
     let meshy_model = opts.resolved_meshy_model();
 
-    // Fresh run: drop any prior model list. Retry: keep it — build_plan only
-    // resurrects the rows that failed.
+    // Fresh run: drop any prior GENERATED models. Retry: keep everything —
+    // build_plan only resurrects the rows that failed. Either way, keep
+    // Asset-Library picks: they're not part of the provider fan-out.
     if !opts.retry_failed {
         for asset in &mut job.assets {
-            asset.models.clear();
+            asset.models.retain(|m| m.provider == "library");
         }
     }
     job.submitted = true;
@@ -1123,6 +1135,15 @@ fn write_scene_manifest(project_dir: &Path, job: &DecomposeJob) -> Result<(), St
     let assets_root = project_dir.join("assets");
     let abs = |rel: &str| assets_root.join(rel).to_string_lossy().replace('\\', "/");
 
+    let key_of = |m: &ModelJob| {
+        if m.provider == "library" {
+            "library".to_string()
+        } else {
+            format!("{}_{}", m.provider, m.path_kind)
+        }
+    };
+
+    let mut credits: Vec<Value> = Vec::new();
     let objects: Vec<Value> = job
         .assets
         .iter()
@@ -1130,26 +1151,45 @@ fn write_scene_manifest(project_dir: &Path, job: &DecomposeJob) -> Result<(), St
             let mut models = Map::new();
             for m in &a.models {
                 if let Some(p) = &m.glb_path {
-                    models.insert(format!("{}_{}", m.provider, m.path_kind), json!(abs(p)));
+                    models.insert(key_of(m), json!(abs(p)));
                 }
             }
             if models.is_empty() {
                 return None;
             }
-            // Prefer a Fast-path model as the one to place by default.
+            // Place the hand-picked library asset by default; else a Fast-path
+            // generated model; else anything with a file.
             let preferred = a
                 .models
                 .iter()
-                .find(|m| m.glb_path.is_some() && m.path_kind == "fast")
+                .find(|m| m.glb_path.is_some() && m.provider == "library")
+                .or_else(|| {
+                    a.models
+                        .iter()
+                        .find(|m| m.glb_path.is_some() && m.path_kind == "fast")
+                })
                 .or_else(|| a.models.iter().find(|m| m.glb_path.is_some()))
-                .map(|m| format!("{}_{}", m.provider, m.path_kind));
-            Some(json!({
+                .map(key_of);
+
+            let mut obj = json!({
                 "id": a.id,
                 "class": a.class,
                 "bbox": a.bbox,
                 "models": Value::Object(models),
                 "preferred": preferred,
-            }))
+            });
+            if let Some(lib) = a.models.iter().find(|m| m.provider == "library") {
+                let attr = json!({
+                    "model": "library",
+                    "source": lib.source,
+                    "author": lib.author,
+                    "license": lib.license,
+                    "url": lib.source_url,
+                });
+                obj["attribution"] = attr.clone();
+                credits.push(attr);
+            }
+            Some(obj)
         })
         .collect();
 
@@ -1159,6 +1199,7 @@ fn write_scene_manifest(project_dir: &Path, job: &DecomposeJob) -> Result<(), St
         "job": job.id,
         "sourceImage": abs(&job.image_path),
         "objects": objects,
+        "credits": credits,
     });
     let path = project_dir
         .join("assets")
@@ -1740,6 +1781,11 @@ fn new_model_job(key: &str, provider: &str, mode: &str, path_kind: &str) -> Mode
         glb_path: None,
         error: None,
         finished_at: None,
+        source: None,
+        source_url: None,
+        author: None,
+        license: None,
+        license_url: None,
     }
 }
 
@@ -1907,4 +1953,437 @@ async fn download_glb(project_dir: &Path, key: &str, url: &str) -> Result<String
     let name = format!("{key}-{}.glb", &stamp()[..8]);
     fs::write(dir.join(&name), &bytes).map_err(|e| format!("Could not save model: {e}"))?;
     Ok(format!("models/{name}"))
+}
+
+// ============================================================================
+// Asset Library — the third decompose path.
+//
+// For a detected object, search curated CC0 3D-asset sources, download a pick,
+// and attach it to the job as a `provider == "library"` model so it flows into
+// scene.json / the Blender bridge exactly like a generated model. Attribution is
+// captured per asset and written to <project>/CREDITS.txt.
+//
+// v1 source: Poly Haven (every asset is CC0). The scoring / plumbing is
+// source-agnostic; a bundled Quaternius/Kenney pack can be added later without
+// touching the frontend.
+// ============================================================================
+
+const POLY_HAVEN_API: &str = "https://api.polyhaven.com";
+const CC0_URL: &str = "https://creativecommons.org/publicdomain/zero/1.0/";
+const LIBRARY_UA: &str = "CozyverseStudio/0.1 (decompose asset library)";
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryCandidate {
+    /// `"polyhaven:ArmChair_01"` — source-prefixed so `library_attach` can route.
+    pub id: String,
+    pub source: String,
+    pub name: String,
+    pub thumbnail_url: String,
+    pub author: String,
+    pub license: String,
+    pub license_url: String,
+    pub source_url: String,
+    pub polycount: Option<u64>,
+    pub score: f32,
+}
+
+fn library_http() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent(LIBRARY_UA)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// Poly Haven's full model list (slug -> meta), cached 15 min — it's ~200 KB and
+/// every object in a diorama would otherwise refetch it.
+async fn poly_haven_catalog() -> Result<HashMap<String, Value>, String> {
+    static CATALOG: OnceLock<StdMutex<Option<(Instant, HashMap<String, Value>)>>> = OnceLock::new();
+    let cell = CATALOG.get_or_init(|| StdMutex::new(None));
+    if let Ok(guard) = cell.lock() {
+        if let Some((at, cat)) = guard.as_ref() {
+            if at.elapsed() < Duration::from_secs(15 * 60) {
+                return Ok(cat.clone());
+            }
+        }
+    }
+    let resp = library_http()?
+        .get(format!("{POLY_HAVEN_API}/assets?type=models"))
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Poly Haven: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Poly Haven returned {}", resp.status()));
+    }
+    let map: HashMap<String, Value> = resp.json().await.map_err(|e| e.to_string())?;
+    if let Ok(mut guard) = cell.lock() {
+        *guard = Some((Instant::now(), map.clone()));
+    }
+    Ok(map)
+}
+
+/// Extra words to try for a detected class — open-vocab detectors and asset
+/// catalogues rarely use the same noun.
+fn class_synonyms(class: &str) -> Vec<String> {
+    let c = class.to_ascii_lowercase();
+    let mut out: Vec<String> = c.split_whitespace().map(str::to_string).collect();
+    let add = |out: &mut Vec<String>, words: &[&str]| {
+        for w in words {
+            out.push((*w).to_string());
+        }
+    };
+    match c.as_str() {
+        s if s.contains("sofa") || s.contains("couch") => add(&mut out, &["sofa", "couch", "settee"]),
+        s if s.contains("armchair") || s.contains("chair") => {
+            add(&mut out, &["chair", "armchair", "seat", "seating"])
+        }
+        s if s.contains("tv") || s.contains("television") => {
+            add(&mut out, &["television", "tv", "screen"])
+        }
+        s if s.contains("plant") => add(&mut out, &["plant", "pot", "planter", "flower"]),
+        s if s.contains("rug") || s.contains("carpet") => add(&mut out, &["rug", "carpet", "mat"]),
+        s if s.contains("lamp") || s.contains("light") => add(&mut out, &["lamp", "light", "lantern"]),
+        s if s.contains("shelf") || s.contains("bookshelf") => {
+            add(&mut out, &["shelf", "bookshelf", "shelving", "bookcase"])
+        }
+        s if s.contains("painting") || s.contains("picture") || s.contains("frame") => {
+            add(&mut out, &["painting", "picture", "frame", "art", "poster"])
+        }
+        s if s.contains("table") => add(&mut out, &["table", "desk"]),
+        s if s.contains("cabinet") || s.contains("dresser") || s.contains("wardrobe") => {
+            add(&mut out, &["cabinet", "dresser", "drawer", "sideboard", "cupboard"])
+        }
+        s if s.contains("clock") => add(&mut out, &["clock"]),
+        s if s.contains("book") => add(&mut out, &["book", "books"]),
+        _ => {}
+    }
+    for w in out.clone() {
+        if let Some(stripped) = w.strip_suffix('s') {
+            out.push(stripped.to_string());
+        } else {
+            out.push(format!("{w}s"));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out.retain(|w| w.len() >= 3);
+    out
+}
+
+/// Rank Poly Haven models against a detected class. Name hits weigh most, then
+/// tags / categories. Ties broken by download_count.
+#[tauri::command]
+pub async fn library_search(object_class: String) -> Result<Vec<LibraryCandidate>, String> {
+    let catalog = poly_haven_catalog().await?;
+    let words = class_synonyms(&object_class);
+
+    let mut scored: Vec<LibraryCandidate> = catalog
+        .iter()
+        .filter_map(|(slug, meta)| {
+            let name = meta.get("name").and_then(Value::as_str).unwrap_or(slug);
+            let name_l = name.to_ascii_lowercase();
+            let tags: Vec<String> = meta
+                .get("tags")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_ascii_lowercase))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let cats: Vec<String> = meta
+                .get("categories")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_ascii_lowercase))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let cat_path = meta
+                .get("category")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+
+            let mut score = 0.0f32;
+            for w in &words {
+                if name_l.contains(w.as_str()) {
+                    score += 3.0;
+                }
+                if tags.iter().any(|t| t == w) {
+                    score += 2.0;
+                }
+                if cats.iter().any(|c| c == w) || cat_path.contains(w.as_str()) {
+                    score += 2.0;
+                }
+            }
+            if score <= 0.0 {
+                return None;
+            }
+            let dl = meta.get("download_count").and_then(Value::as_u64).unwrap_or(0);
+            score += (dl as f32).log10().max(0.0) * 0.15;
+
+            let author = meta
+                .get("authors")
+                .and_then(Value::as_object)
+                .and_then(|m| m.keys().next().cloned())
+                .unwrap_or_else(|| "Poly Haven".into());
+            Some(LibraryCandidate {
+                id: format!("polyhaven:{slug}"),
+                source: "Poly Haven".into(),
+                name: name.to_string(),
+                thumbnail_url: meta
+                    .get("thumbnail_url")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| {
+                        format!("https://cdn.polyhaven.com/asset_img/thumbs/{slug}.png?height=180")
+                    }),
+                author,
+                license: "CC0".into(),
+                license_url: CC0_URL.into(),
+                source_url: format!("https://polyhaven.com/a/{slug}"),
+                polycount: meta.get("polycount").and_then(Value::as_u64),
+                score,
+            })
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(16);
+    Ok(scored)
+}
+
+/// Download a picked Poly Haven model (glTF, 1k textures) into
+/// `assets/library/<slug>/` and attach it to `asset_id` as a `library` model.
+/// Re-picking replaces the previous library model on that object.
+#[tauri::command]
+pub async fn library_attach(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+    asset_id: String,
+    candidate_id: String,
+) -> Result<(), String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let mut state = load_state(&project_dir);
+    let job = state
+        .jobs
+        .iter_mut()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+
+    let slug = candidate_id
+        .strip_prefix("polyhaven:")
+        .ok_or("Only Poly Haven assets are supported right now")?
+        .to_string();
+    if !slug
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err("Bad asset id".into());
+    }
+
+    let files: Value = library_http()?
+        .get(format!("{POLY_HAVEN_API}/files/{slug}"))
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Poly Haven: {e}"))?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    let gltf_node = ["1k", "2k"]
+        .iter()
+        .find_map(|res| files.pointer(&format!("/gltf/{res}/gltf")))
+        .ok_or("This asset has no glTF download")?;
+    let gltf_url = gltf_node
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or("Malformed Poly Haven file tree")?;
+
+    let dest_dir = project_dir.join("assets").join("library").join(&slug);
+    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let client = library_http()?;
+
+    let fetch = |url: String| {
+        let client = client.clone();
+        async move {
+            let r = client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| format!("download failed: {e}"))?;
+            if !r.status().is_success() {
+                return Err(format!("download failed ({})", r.status()));
+            }
+            r.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())
+        }
+    };
+
+    let gltf_name = gltf_url
+        .rsplit('/')
+        .next()
+        .unwrap_or("model.gltf")
+        .to_string();
+    let gltf_bytes = fetch(gltf_url.to_string()).await?;
+    fs::write(dest_dir.join(&gltf_name), &gltf_bytes).map_err(|e| e.to_string())?;
+
+    if let Some(include) = gltf_node.get("include").and_then(Value::as_object) {
+        for (rel, info) in include {
+            if rel.contains("..") || Path::new(rel).is_absolute() {
+                continue;
+            }
+            let Some(url) = info.get("url").and_then(Value::as_str) else {
+                continue;
+            };
+            let bytes = fetch(url.to_string()).await?;
+            let path = dest_dir.join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(path, &bytes).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let author = poly_haven_catalog()
+        .await
+        .ok()
+        .and_then(|c| c.get(&slug).cloned())
+        .and_then(|m| {
+            m.get("authors")
+                .and_then(Value::as_object)
+                .and_then(|o| o.keys().next().cloned())
+        })
+        .unwrap_or_else(|| "Poly Haven".into());
+
+    let asset = job
+        .assets
+        .iter_mut()
+        .find(|a| a.id == asset_id)
+        .ok_or("No such object in this job")?;
+    asset.models.retain(|m| m.provider != "library");
+    asset.models.push(ModelJob {
+        key: format!("{asset_id}_library"),
+        provider: "library".into(),
+        mode: "library".into(),
+        path_kind: "library".into(),
+        status: "succeeded".into(),
+        progress: 1.0,
+        task_id: None,
+        glb_path: Some(format!("library/{slug}/{gltf_name}")),
+        error: None,
+        finished_at: Some(now()),
+        source: Some("Poly Haven".into()),
+        source_url: Some(format!("https://polyhaven.com/a/{slug}")),
+        author: Some(author),
+        license: Some("CC0".into()),
+        license_url: Some(CC0_URL.into()),
+    });
+
+    let mut job = job.clone();
+    publish(&app, &project_dir, &mut job);
+    let _ = write_scene_manifest(&project_dir, &job);
+    write_credits(&project_dir);
+    Ok(())
+}
+
+/// Finish a job on the Asset-Library path alone — no provider fan-out. Marks it
+/// Done so scene.json / the panel treat it as complete. Needs ≥1 attached pick.
+#[tauri::command]
+pub fn library_finalize(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+) -> Result<(), String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let mut state = load_state(&project_dir);
+    let job = state
+        .jobs
+        .iter_mut()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+    let n = job
+        .assets
+        .iter()
+        .flat_map(|a| &a.models)
+        .filter(|m| m.provider == "library")
+        .count();
+    if n == 0 {
+        return Err("Attach at least one library asset first.".into());
+    }
+    job.submitted = true;
+    job.status = JobStatus::Done;
+    job.error = None;
+    job.message = format!("Done — {n} library asset(s) attached");
+    let mut job = job.clone();
+    publish(&app, &project_dir, &mut job);
+    let _ = write_scene_manifest(&project_dir, &job);
+    write_credits(&project_dir);
+    Ok(())
+}
+
+/// Remove the library pick from an object (downloaded files stay on disk;
+/// `decompose_forget_job` / a project delete clean those).
+#[tauri::command]
+pub fn library_detach(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+    asset_id: String,
+) -> Result<(), String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let mut state = load_state(&project_dir);
+    let job = state
+        .jobs
+        .iter_mut()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+    if let Some(a) = job.assets.iter_mut().find(|a| a.id == asset_id) {
+        a.models.retain(|m| m.provider != "library");
+    }
+    let mut job = job.clone();
+    publish(&app, &project_dir, &mut job);
+    let _ = write_scene_manifest(&project_dir, &job);
+    write_credits(&project_dir);
+    Ok(())
+}
+
+/// (Re)write `<project>/CREDITS.txt` from every library model across every job.
+fn write_credits(project_dir: &Path) {
+    let mut lines: Vec<String> = Vec::new();
+    for job in load_state(project_dir).jobs {
+        for m in job.assets.iter().flat_map(|a| &a.models) {
+            if m.provider != "library" {
+                continue;
+            }
+            let name = m
+                .glb_path
+                .as_deref()
+                .and_then(|p| p.split('/').nth(1))
+                .unwrap_or("asset");
+            lines.push(format!(
+                "- {name} — {} — {} — {}",
+                m.author.as_deref().unwrap_or("unknown"),
+                m.license.as_deref().unwrap_or("CC0"),
+                m.source_url.as_deref().unwrap_or(""),
+            ));
+        }
+    }
+    lines.sort();
+    lines.dedup();
+    if lines.is_empty() {
+        let _ = fs::remove_file(project_dir.join("CREDITS.txt"));
+        return;
+    }
+    let body = format!(
+        "Third-party 3D assets used in this project\n\
+         =========================================\n\
+         Pulled via Cozyverse Studio's decompose Asset Library. All CC0 / public\n\
+         domain; attribution is not legally required for CC0 but is listed here\n\
+         as a courtesy.\n\n{}\n",
+        lines.join("\n")
+    );
+    let _ = fs::write(project_dir.join("CREDITS.txt"), body);
 }

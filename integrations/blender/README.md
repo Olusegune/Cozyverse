@@ -45,6 +45,12 @@ by hand — the placement is a starting point, not a solve.
 }
 ```
 
+An object picked from the **Asset Library** path adds a `"library"` entry to
+`models` (a `.gltf` under `assets/library/<slug>/`), sets `preferred` to it, and
+carries an `attribution` block (`source`, `author`, `license`, `url`) — mirrored
+into a top-level `credits` array and the project's `CREDITS.txt`. The add-on
+imports `.gltf` the same as `.glb` and prints the credits after placing.
+
 ### Unity
 
 No Cozyverse package yet, but the models are standard glTF:

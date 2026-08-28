@@ -114,6 +114,22 @@ background instead of white.
 
 Either way, nothing is sent to Tripo/Meshy and no 3D credits are used.
 
+### Asset Library path (free)
+
+In the confirm block, **Asset library — free (CC0)**. Per object: **Find a free
+asset** → a strip of ranked matches from **Poly Haven** (everything there is
+CC0) → click one to download it into `assets/library/<slug>/` and attach it to
+that object. Re-pick to swap; **remove** to detach.
+
+Library picks flow into `scene.json` (as the `preferred` model, with an
+`attribution` block) and the Blender bridge places them like any other model. A
+`CREDITS.txt` is written to the project automatically. **Use N library assets &
+finish** completes the job with no provider spend.
+
+Best for generic furniture/props — a curated asset has clean topology and
+authored materials that AI gen rarely matches. Mix freely: library for the
+couch, AI gen for the one bespoke piece, images for the rest.
+
 ### 3D path (paid)
 
 ![The confirmation block with its cost estimate](img/06b-confirm-detail.png)
