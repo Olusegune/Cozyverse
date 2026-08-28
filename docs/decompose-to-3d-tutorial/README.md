@@ -19,6 +19,10 @@ Every screenshot below is from a real run on the sample project **Town Cozy**.
 **Segmentation is local and free.** Nothing reaches a provider, and nothing is
 billed, until you press **Send to 3D** in Step 6.
 
+> **Getting help:** there's a **Documentation** button on the splash screen and a
+> **Help & Docs** item at the bottom of the left navigation — both open the
+> in-app help (also under the **Help ▸ Documentation** menu).
+
 ---
 
 ## Step 1 — Add a Tripo or Meshy key
@@ -95,9 +99,12 @@ confirmation block.
 It spells out **how many paid generations** pressing Send will start:
 
 ```
-objects  ×  providers with a key  ×  (1 Fast  +  1 Quality, if 4 views exist)
+objects  ×  chosen providers  ×  (1 Fast  +  1 Quality, if 4 views exist)
 ```
 
+- **Generate with: ☐ Tripo ☐ Meshy** — tick whichever service(s) you want to
+  build the models. Both are on by default (if both have a key); untick one to
+  use only the other. The estimate updates as you change it.
 - **☑ Also run the 4-view Quality path** — leave ticked for best fidelity; untick
   for Fast-path only (half the spend).
 - **Send to 3D** — starts generation. **This is the paid step.**
