@@ -1552,6 +1552,22 @@ pub async fn decompose_export_turnaround(
     if frames.is_empty() {
         return Err("No frames were rendered.".into());
     }
+    // Guard against a runaway caller — the frames arrive as base64 over IPC.
+    if frames.len() > 400 {
+        return Err("Too many frames for one turnaround.".into());
+    }
+    if frames.iter().any(|f| f.data_uri.len() > 40 * 1024 * 1024) {
+        return Err("A rendered frame is implausibly large.".into());
+    }
+
+    // Reject anything that could escape the objects/ folder in the zip.
+    let safe_component = |s: &str| {
+        !s.is_empty()
+            && s.len() <= 80
+            && !s.contains(['/', '\\', ':'])
+            && !s.contains("..")
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+    };
 
     let assets_root = project_dir.join("assets");
     let obj_count = {
@@ -1593,7 +1609,7 @@ pub async fn decompose_export_turnaround(
     let mut per_object: HashMap<String, (String, Vec<String>)> = HashMap::new();
     let mut written = 0usize;
     for f in &frames {
-        if f.slug.contains('/') || f.slug.contains("..") || f.view.contains('/') {
+        if !safe_component(&f.slug) || !safe_component(&f.view) {
             continue;
         }
         let Some(bytes) = f
@@ -2161,10 +2177,12 @@ fn library_http() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+type CatalogCache = StdMutex<Option<(Instant, HashMap<String, Value>)>>;
+
 /// Poly Haven's full model list (slug -> meta), cached 15 min — it's ~200 KB and
 /// every object in a diorama would otherwise refetch it.
 async fn poly_haven_catalog() -> Result<HashMap<String, Value>, String> {
-    static CATALOG: OnceLock<StdMutex<Option<(Instant, HashMap<String, Value>)>>> = OnceLock::new();
+    static CATALOG: OnceLock<CatalogCache> = OnceLock::new();
     let cell = CATALOG.get_or_init(|| StdMutex::new(None));
     if let Ok(guard) = cell.lock() {
         if let Some((at, cat)) = guard.as_ref() {

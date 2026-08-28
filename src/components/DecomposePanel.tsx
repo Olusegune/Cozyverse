@@ -706,14 +706,18 @@ function JobCard({
           const m =
             a.models.find((x) => x.glbPath && x.pathKind === "fast") ??
             a.models.find((x) => x.glbPath)!;
-          const url = m.glbPath ? await decomposeAssetUrl(dirName, m.glbPath) : null;
-          if (url) {
-            const slug = `${String(i).padStart(2, "0")}_${a.class
-              .replace(/[^a-z0-9]+/gi, "_")
-              .toLowerCase()}`;
-            for (const f of await rig.render(url)) {
-              frames.push({ objectId: a.id, slug, view: f.view, dataUri: f.dataUri });
+          try {
+            const url = m.glbPath ? await decomposeAssetUrl(dirName, m.glbPath) : null;
+            if (url) {
+              const slug = `${String(i).padStart(2, "0")}_${
+                a.class.replace(/[^a-z0-9]+/gi, "_").toLowerCase().slice(0, 40) || "object"
+              }`;
+              for (const f of await rig.render(url)) {
+                frames.push({ objectId: a.id, slug, view: f.view, dataUri: f.dataUri });
+              }
             }
+          } catch (objErr) {
+            console.error(`turnaround: skipped ${a.class}`, objErr);
           }
           setTurn((t) => (t ? { ...t, done: i + 1 } : t));
         }
@@ -1022,6 +1026,15 @@ function JobCard({
                 <span className="text-slate-300"> scene.json</span> (next to the job) lists every
                 object with its source-image bounding box, so an importer can lay the pieces back
                 out.
+              </p>
+              <p>
+                <b className="text-slate-300">Just to look at one</b> — click its ▶ in the grid
+                above (in-app viewer). Outside the app: double-click the .glb — Windows{" "}
+                <b className="text-slate-300">3D&nbsp;Viewer</b> / Paint&nbsp;3D open it; or drag it
+                onto <span className="text-slate-300">gltf-viewer.donmccurdy.com</span> or{" "}
+                <span className="text-slate-300">sandbox.babylonjs.com</span> in a browser; VS Code
+                with the <span className="text-slate-300">glTF Tools</span> extension also previews
+                it.
               </p>
               <p>
                 <b className="text-slate-300">Blender</b> — install{" "}

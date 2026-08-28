@@ -614,8 +614,7 @@ async fn fal_edit_image(
         .or_else(|| result.pointer("/image/url"))
         .and_then(Value::as_str)
         .ok_or("fal returned no image URL")?;
-    if let Some(rest) = img_url.strip_prefix("data:") {
-        let _ = rest;
+    if img_url.starts_with("data:") {
         return Ok(img_url.to_string());
     }
     let bytes = provider_http_client()?

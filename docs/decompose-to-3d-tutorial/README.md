@@ -208,8 +208,27 @@ Documents/Cozyverses/<project>/assets/decompose/<jobId>/
 ```
 
 The job's buttons: **Open the models folder**, **Scene file (Blender / Unity /
-Unreal)** (reveals `scene.json`), **Image pack (.zip)**, and **How to use these
-files** (the summary below, in‑app).
+Unreal)** (reveals `scene.json`), **Turnaround (.zip)** (renders 5 clean views of
+each mesh — see below), **Image pack (.zip)**, and **How to use these files**.
+
+### How do I open a `.glb`?
+
+| Where | How |
+|---|---|
+| **In Cozyverse** | Click the **▶** on any object card in the result grid — spins in the panel. |
+| **Windows, no install** | Double‑click the `.glb`. **3D Viewer** (built into Windows 10/11) or **Paint 3D** opens it. Explorer shows a thumbnail once 3D Viewer is installed. |
+| **Browser** | Drag the file onto **gltf‑viewer.donmccurdy.com** or **sandbox.babylonjs.com**. |
+| **VS Code** | Install the **glTF Tools** extension, then open the file. |
+| **Blender** | **File ▸ Import ▸ glTF 2.0** for one model, or the Cozyverse Bridge add‑on for the whole scene (Step 8). |
+| **ModelForge** | Open it there for rigging / retopology / format conversion. |
+
+### Turnaround sheet from a finished model
+
+**Turnaround (.zip)** renders each generated mesh to `perspective / front / back /
+left / right` at 1024² on white — *the real mesh at each angle*, so it's exact
+and consistent (unlike the AI turnaround, whose back/side views are inferred).
+Free, no providers. Feed it straight into another image‑to‑3D tool or use it as
+reference art.
 
 ---
 

@@ -211,7 +211,7 @@ async fn run_streamed(
     let mut seen: u32 = 0;
     while let Ok(Some(line)) = lines.next_line().await {
         seen += 1;
-        let frac = (seen.min(40) as u32 * span as u32) / 40;
+        let frac = seen.min(40) * span as u32 / 40;
         let pct = (base as u32 + frac).min(99) as u8;
         let short: String = line.trim().chars().take(90).collect();
         if !short.is_empty() {
