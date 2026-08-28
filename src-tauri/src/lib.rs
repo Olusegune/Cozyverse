@@ -607,6 +607,7 @@ pub fn run() {
             decompose::decompose_export_pack,
             decompose::decompose_export_pack_estimate,
             decompose::decompose_turnaround_engines,
+            decompose::decompose_export_turnaround,
             decompose_setup::decompose_runtime_status,
             decompose_setup::setup_decompose_runtime,
             app_version,

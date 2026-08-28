@@ -38,6 +38,8 @@ import {
   exportDecomposePack,
   exportPackEstimate,
   type ExportPackEstimate,
+  exportTurnaround,
+  type TurnaroundFrame,
   useExportProgress,
   revealDecomposeOutput,
   setStubMode,
@@ -686,7 +688,45 @@ function JobCard({
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [turn, setTurn] = useState<{ done: number; total: number } | null>(null);
   const { done, total } = jobProgress(job);
+
+  const runTurnaround = async () => {
+    if (!dirName || turn) return;
+    const objs = job.assets.filter((a) => a.models.some((m) => m.glbPath));
+    if (objs.length === 0) return;
+    setTurn({ done: 0, total: objs.length });
+    try {
+      const { createTurnaroundRig } = await import("../lib/turnaround");
+      const rig = createTurnaroundRig(1024);
+      const frames: TurnaroundFrame[] = [];
+      try {
+        for (let i = 0; i < objs.length; i++) {
+          const a = objs[i];
+          const m =
+            a.models.find((x) => x.glbPath && x.pathKind === "fast") ??
+            a.models.find((x) => x.glbPath)!;
+          const url = m.glbPath ? await decomposeAssetUrl(dirName, m.glbPath) : null;
+          if (url) {
+            const slug = `${String(i).padStart(2, "0")}_${a.class
+              .replace(/[^a-z0-9]+/gi, "_")
+              .toLowerCase()}`;
+            for (const f of await rig.render(url)) {
+              frames.push({ objectId: a.id, slug, view: f.view, dataUri: f.dataUri });
+            }
+          }
+          setTurn((t) => (t ? { ...t, done: i + 1 } : t));
+        }
+      } finally {
+        rig.dispose();
+      }
+      if (frames.length) await exportTurnaround(dirName, job.id, frames);
+    } catch (e) {
+      console.error("turnaround render failed", e);
+    } finally {
+      setTurn(null);
+    }
+  };
 
   const failedCount = useMemo(
     () => job.assets.flatMap((a) => a.models).filter((m) => m.status === "failed").length,
@@ -951,6 +991,15 @@ function JobCard({
                 <FolderOpen size={12} /> Scene file (Blender / Unity / Unreal)
               </button>
             )}
+            <button
+              onClick={() => void runTurnaround()}
+              disabled={turn !== null}
+              className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300 disabled:opacity-50"
+              title="Render a clean 5-view turnaround (perspective + front/back/left/right) of each generated model — the real mesh, geometrically exact, no AI and no spend."
+            >
+              <RotateCw size={12} className={turn ? "animate-spin" : ""} />
+              {turn ? `Rendering ${turn.done}/${turn.total}…` : "Turnaround (.zip)"}
+            </button>
             <button
               onClick={() => setShowUsage((v) => !v)}
               className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300"

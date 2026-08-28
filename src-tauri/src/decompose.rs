@@ -1520,6 +1520,139 @@ pub async fn decompose_export_pack(
     Ok(Some(dest.to_string_lossy().into_owned()))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnaroundFrame {
+    /// `assets[i].id` — for the manifest; not trusted for paths.
+    pub object_id: String,
+    /// filesystem-safe object folder name (`00_sofa`).
+    pub slug: String,
+    /// `perspective` | `front` | `back` | `left` | `right`.
+    pub view: String,
+    /// `data:image/png;base64,…` from the three.js canvas.
+    pub data_uri: String,
+}
+
+/// Package a client-rendered turnaround (frames come straight off the in-app
+/// three.js viewer, so every angle is the *real* generated mesh — geometrically
+/// exact, perfectly consistent, free) into a zip via a Save dialog.
+#[tauri::command]
+pub async fn decompose_export_turnaround(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+    frames: Vec<TurnaroundFrame>,
+) -> Result<Option<String>, String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let job = load_state(&project_dir)
+        .jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+    if frames.is_empty() {
+        return Err("No frames were rendered.".into());
+    }
+
+    let assets_root = project_dir.join("assets");
+    let obj_count = {
+        let mut s: Vec<&str> = frames.iter().map(|f| f.object_id.as_str()).collect();
+        s.sort();
+        s.dedup();
+        s.len()
+    };
+    let default_name = format!(
+        "cozyverse-turnaround-{}-{}obj.zip",
+        job_id_short(&job.id),
+        obj_count
+    );
+    let dest = match rfd::FileDialog::new()
+        .add_filter("Zip archive", &["zip"])
+        .set_file_name(&default_name)
+        .save_file()
+    {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    let file = fs::File::create(&dest).map_err(|e| format!("Could not create the zip: {e}"))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // scene/original.<ext>
+    let source = assets_root.join(&job.image_path);
+    if source.is_file() {
+        if let Ok(bytes) = fs::read(&source) {
+            let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("png");
+            zip.start_file(format!("scene/original.{ext}"), opts)
+                .map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut zip, &bytes).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let mut per_object: HashMap<String, (String, Vec<String>)> = HashMap::new();
+    let mut written = 0usize;
+    for f in &frames {
+        if f.slug.contains('/') || f.slug.contains("..") || f.view.contains('/') {
+            continue;
+        }
+        let Some(bytes) = f
+            .data_uri
+            .split_once(";base64,")
+            .and_then(|(_, b)| base64::engine::general_purpose::STANDARD.decode(b).ok())
+        else {
+            continue;
+        };
+        let name = format!("objects/{}/{}.png", f.slug, f.view);
+        zip.start_file(&name, opts).map_err(|e| e.to_string())?;
+        std::io::Write::write_all(&mut zip, &bytes).map_err(|e| e.to_string())?;
+        written += 1;
+        let entry = per_object
+            .entry(f.object_id.clone())
+            .or_insert_with(|| (f.slug.clone(), Vec::new()));
+        entry.1.push(format!("{}.png", f.view));
+    }
+    if written == 0 {
+        drop(zip);
+        let _ = fs::remove_file(&dest);
+        return Err("Could not decode any rendered frames.".into());
+    }
+
+    let objects: Vec<Value> = job
+        .assets
+        .iter()
+        .filter_map(|a| {
+            per_object.get(&a.id).map(|(slug, files)| {
+                json!({
+                    "id": a.id,
+                    "class": a.class,
+                    "bbox": a.bbox,
+                    "folder": format!("objects/{slug}"),
+                    "files": files,
+                })
+            })
+        })
+        .collect();
+
+    let manifest = serde_json::to_string_pretty(&json!({
+        "app": "Cozyverse Studio",
+        "job": job.id,
+        "mode": "glb-render",
+        "sourceImage": job.image_path,
+        "objectCount": objects.len(),
+        "objects": objects,
+        "note": "Every view is a render of the generated 3D mesh — geometrically exact and \
+                 consistent across angles. White background, long lens (near-orthographic). Feed \
+                 into any image-to-3D or reference workflow.",
+    }))
+    .unwrap();
+    zip.start_file("manifest.json", opts).map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut zip, manifest.as_bytes()).map_err(|e| e.to_string())?;
+
+    zip.finish().map_err(|e| format!("Could not finish the zip: {e}"))?;
+    Ok(Some(dest.to_string_lossy().into_owned()))
+}
+
 // ---------------------------------------------------------------- python bridge
 
 #[derive(Deserialize)]

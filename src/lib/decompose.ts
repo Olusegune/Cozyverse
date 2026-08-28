@@ -159,6 +159,24 @@ export async function exportDecomposePack(
   });
 }
 
+export type TurnaroundFrame = {
+  objectId: string;
+  slug: string;
+  view: string;
+  dataUri: string;
+};
+
+/** Zip up a client-rendered turnaround (frames come straight off the three.js
+ * viewer — every angle is the real generated mesh). Free. Returns the saved
+ * path, or null if cancelled. */
+export async function exportTurnaround(
+  dirName: string,
+  jobId: string,
+  frames: TurnaroundFrame[],
+): Promise<string | null> {
+  return invoke<string | null>("decompose_export_turnaround", { dirName, jobId, frames });
+}
+
 export type TurnaroundEngine = { id: string; label: string; note: string };
 
 export type ExportPackEstimate = {
