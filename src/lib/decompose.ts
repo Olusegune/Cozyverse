@@ -8,7 +8,7 @@
 // component can read it with `useDecompositions()` without touching the main
 // Zustand store.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useSyncExternalStore } from "react";
 
@@ -71,6 +71,8 @@ export type DecomposeOptions = {
   force?: boolean;
   /** Restrict fan-out to a subset of ["tripo","meshy"] (default: all keyed). */
   providers?: string[];
+  /** Only fan out these decomposed-asset ids (the confirm-block object picker). */
+  assetIds?: string[];
   tripoModelVersion?: string;
   /** Default "meshy-7"; pass "latest" to always float to the newest tier. */
   meshyModel?: string;
@@ -337,8 +339,10 @@ export function estimateGenerations(
   job: DecomposeJob,
   providerCount: number,
   qualityPath: boolean,
+  isSelected?: (assetId: string) => boolean,
 ): number {
   return job.assets.reduce((sum, a) => {
+    if (isSelected && !isSelected(a.id)) return sum;
     const perProvider = 1 + (qualityPath && assetHasQualityViews(a) ? 1 : 0);
     return sum + providerCount * perProvider;
   }, 0);
@@ -354,6 +358,33 @@ export async function forgetJob(dirName: string, jobId: string): Promise<void> {
  * marked failed ("Cancelled"). Throws if the job isn't running. */
 export async function cancelJob(dirName: string, jobId: string): Promise<void> {
   await invoke("decompose_cancel_job", { dirName, jobId });
+}
+
+/** Re-run only the model steps that failed on a finished job. Paid, but scoped
+ * to the failures. Throws if nothing failed or the job is still running. */
+export async function retryFailed(dirName: string, jobId: string): Promise<void> {
+  await invoke("decompose_retry_failed", { dirName, jobId });
+}
+
+/** Current provider credit balances (null = no key / unreadable). Tripo and
+ * Meshy use different units — display, don't compare across them. */
+export async function providerBalance(): Promise<Record<string, number | null>> {
+  return invoke<Record<string, number | null>>("decompose_provider_balance");
+}
+
+/** A loadable URL for a file the pipeline wrote under the project's assets/ dir
+ * (relative path, e.g. "models/foo.glb" or "decompose/<job>/asset_0_perspective.png").
+ * Returns null if the file is gone. */
+export async function decomposeAssetUrl(
+  dirName: string,
+  relUnderAssets: string,
+): Promise<string | null> {
+  try {
+    const abs = await invoke<string>("decompose_file_path", { dirName, relUnderAssets });
+    return convertFileSrc(abs);
+  } catch {
+    return null;
+  }
 }
 
 const hidden = new Set<string>();

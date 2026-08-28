@@ -269,6 +269,14 @@ pub struct DecomposeOptions {
     /// Raw params merged verbatim into every Tripo request.
     #[serde(default)]
     pub tripo_extra: Option<Map<String, Value>>,
+    /// Only fan out these decomposed-asset ids (the confirm-block object picker).
+    /// `None` = every asset the pipeline found.
+    #[serde(default)]
+    pub asset_ids: Option<Vec<String>>,
+    /// Internal: re-run only the model steps that previously failed, leaving
+    /// succeeded ones untouched. Set by `decompose_retry_failed`.
+    #[serde(default, skip)]
+    pub retry_failed: bool,
 }
 
 impl Default for DecomposeOptions {
@@ -288,6 +296,8 @@ impl Default for DecomposeOptions {
             pbr: None,
             meshy_extra: None,
             tripo_extra: None,
+            asset_ids: None,
+            retry_failed: false,
         }
     }
 }
@@ -522,6 +532,126 @@ pub fn get_decomposition(
         .into_iter()
         .find(|j| j.id == job_id)
         .ok_or_else(|| "No such decomposition job".into())
+}
+
+/// Absolute path of a file the pipeline wrote under the project's `assets/` dir
+/// (a GLB in `models/`, a cutout in `decompose/<job>/…`). The frontend feeds this
+/// to `convertFileSrc` to load the file through Tauri's asset protocol — the
+/// project tree is inside the `**/Cozyverses/**` scope in tauri.conf.json.
+#[tauri::command]
+pub fn decompose_file_path(
+    app: AppHandle,
+    dir_name: String,
+    rel_under_assets: String,
+) -> Result<String, String> {
+    // Contain to assets/: no "..", no absolute, no drive-letter escapes.
+    if rel_under_assets.contains("..")
+        || Path::new(&rel_under_assets).is_absolute()
+        || rel_under_assets.contains(':')
+    {
+        return Err("Bad asset path".into());
+    }
+    let p = crate::project_path(&app, &dir_name)?
+        .join("assets")
+        .join(&rel_under_assets);
+    if !p.is_file() {
+        return Err("That file is not on disk".into());
+    }
+    Ok(p.to_string_lossy().into_owned())
+}
+
+/// Current provider credit balances for the confirm block. `None` for a provider
+/// means "no key" or "couldn't read it" — the UI just hides that row.
+#[tauri::command]
+pub async fn decompose_provider_balance() -> HashMap<String, Option<f64>> {
+    async fn read(provider: &str) -> Option<f64> {
+        let key = keyring_value(provider)?;
+        let (url, pointer_candidates): (&str, &[&str]) = match provider {
+            "tripo" => (
+                "https://api.tripo3d.ai/v2/openapi/user/balance",
+                &["/data/balance", "/data/credits", "/balance"],
+            ),
+            "meshy" => (
+                "https://api.meshy.ai/openapi/v1/balance",
+                &["/balance", "/data/balance", "/credits"],
+            ),
+            _ => return None,
+        };
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .ok()?;
+        let resp = client
+            .get(url)
+            .header("Authorization", format!("Bearer {key}"))
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let v: Value = resp.json().await.ok()?;
+        for ptr in pointer_candidates {
+            if let Some(n) = v.pointer(ptr).and_then(Value::as_f64) {
+                return Some(n);
+            }
+        }
+        None
+    }
+    let (tripo, meshy) = tokio::join!(read("tripo"), read("meshy"));
+    HashMap::from([
+        ("tripo".to_string(), tripo),
+        ("meshy".to_string(), meshy),
+    ])
+}
+
+/// Re-run only the model steps that failed on a finished job, keeping the ones
+/// that succeeded. Uses current default model versions. Paid — same per-step
+/// cost as the original fan-out, but only for the failures.
+#[tauri::command]
+pub async fn decompose_retry_failed(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+) -> Result<(), String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let job = load_state(&project_dir)
+        .jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+    if matches!(job.status, JobStatus::Modeling | JobStatus::Decomposing | JobStatus::Pending) {
+        return Err("This job is still running.".into());
+    }
+    let failed: Vec<&ModelJob> = job
+        .assets
+        .iter()
+        .flat_map(|a| &a.models)
+        .filter(|m| m.status == "failed")
+        .collect();
+    if failed.is_empty() {
+        return Err("Nothing failed on this job.".into());
+    }
+    // Scope the retry to the providers/paths that actually failed.
+    let providers: Vec<String> = {
+        let mut v: Vec<String> = failed.iter().map(|m| m.provider.clone()).collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let needs_quality = failed.iter().any(|m| m.path_kind == "quality");
+    let opts = DecomposeOptions {
+        submit: true,
+        quality_path: needs_quality,
+        providers: Some(providers),
+        retry_failed: true,
+        ..DecomposeOptions::default()
+    };
+    if opts.active_providers().is_empty() {
+        return Err("The API key for the failed provider isn't connected anymore.".into());
+    }
+    spawn_fan_out(app, project_dir, job, opts);
+    Ok(())
 }
 
 /// Permanently drop a finished/awaiting job from `decompositions.json` and delete
@@ -759,9 +889,12 @@ async fn fan_out(
     let tripo_version = opts.resolved_tripo_version();
     let meshy_model = opts.resolved_meshy_model();
 
-    // Reset any prior model list (e.g. a retry after a failed fan-out).
-    for asset in &mut job.assets {
-        asset.models.clear();
+    // Fresh run: drop any prior model list. Retry: keep it — build_plan only
+    // resurrects the rows that failed.
+    if !opts.retry_failed {
+        for asset in &mut job.assets {
+            asset.models.clear();
+        }
     }
     job.submitted = true;
     job.status = JobStatus::Modeling;
@@ -1518,6 +1651,11 @@ fn build_plan(
     ];
 
     for asset in &mut job.assets {
+        if let Some(ids) = &opts.asset_ids {
+            if !ids.iter().any(|id| id == &asset.id) {
+                continue;
+            }
+        }
         let persp_uri = data_uri_for(project_dir, &asset.perspective_image);
         let ortho = OrthoViews {
             front: asset
@@ -1544,33 +1682,46 @@ fn build_plan(
         let quality_ok =
             opts.quality_path && ortho.has_front() && ortho.populated_count() >= 2;
 
+        // In retry mode we don't add new model rows — we resurrect the ones that
+        // failed and rebuild just their steps, leaving succeeded rows alone.
+        let want = |models: &mut Vec<ModelJob>, key: &str, provider: &str, mode: &str, path_kind: &str| -> bool {
+            if opts.retry_failed {
+                match models.iter_mut().find(|m| m.key == key) {
+                    Some(m) if m.status == "failed" => {
+                        m.status = "pending".into();
+                        m.progress = 0.0;
+                        m.error = None;
+                        m.task_id = None;
+                        m.finished_at = None;
+                        true
+                    }
+                    _ => false,
+                }
+            } else {
+                models.push(new_model_job(key, provider, mode, path_kind));
+                true
+            }
+        };
+
         for (provider, enabled) in providers {
             if !enabled {
                 continue;
             }
             if let Ok(uri) = &persp_uri {
                 let key = format!("{}_{}_perspective", asset.id, provider);
-                let (operation, params) =
-                    single_image_params(provider, uri, tripo_version, meshy_model, opts);
-                asset.models.push(new_model_job(&key, provider, "single-image", "fast"));
-                steps.push(Step {
-                    key,
-                    path_kind: "fast".into(),
-                    operation,
-                    params,
-                });
+                if want(&mut asset.models, &key, provider, "single-image", "fast") {
+                    let (operation, params) =
+                        single_image_params(provider, uri, tripo_version, meshy_model, opts);
+                    steps.push(Step { key, path_kind: "fast".into(), operation, params });
+                }
             }
             if quality_ok {
                 let key = format!("{}_{}_multiview", asset.id, provider);
-                let (operation, params) =
-                    multi_view_params(provider, &ortho, tripo_version, meshy_model, opts);
-                asset.models.push(new_model_job(&key, provider, "multi-view", "quality"));
-                steps.push(Step {
-                    key,
-                    path_kind: "quality".into(),
-                    operation,
-                    params,
-                });
+                if want(&mut asset.models, &key, provider, "multi-view", "quality") {
+                    let (operation, params) =
+                        multi_view_params(provider, &ortho, tripo_version, meshy_model, opts);
+                    steps.push(Step { key, path_kind: "quality".into(), operation, params });
+                }
             }
         }
     }

@@ -118,6 +118,11 @@ Either way, nothing is sent to Tripo/Meshy and no 3D credits are used.
 
 ![The confirmation block with its cost estimate](img/06b-confirm-detail.png)
 
+- **Objects to generate** — a thumbnail of every detected object with a
+  checkbox. Untick the junk (a wall slab, a duplicate, background) so you don't
+  pay to model it. The estimate and the Send button count only what's ticked.
+- **Balance** — your live Tripo / Meshy credit, shown under the estimate; it
+  turns amber if it looks short for this run.
 - **Generate with: ☐ Tripo ☐ Meshy** — tick the service(s) to build with. Both
   on by default (if both have a key). The estimate updates as you change it.
 - **Also run the 4‑view Quality path** — experimental; only selectable if this
@@ -141,6 +146,13 @@ Each object shows a small grid — one cell per provider × path — moving
 `pending → running → succeeded`. A green **GLB** tag appears once that model has
 downloaded. A **Stop** button on the job cancels the rest of the run; models
 already finished are kept.
+
+When it settles, if any cells are red, **Retry failed (N)** re-submits just
+those — the ones that already succeeded aren't touched or re-billed.
+
+**Preview** — click any cell with a **GLB** tag to open a rotatable 3D preview
+inside the panel. Drag to orbit; it auto-rotates otherwise. No need to open
+Blender just to see whether a model came out clean.
 
 ![One provider done, the other still running](img/07b-modeling-detail.png)
 

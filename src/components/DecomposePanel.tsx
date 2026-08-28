@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -7,10 +7,14 @@ import {
   ChevronRight,
   FolderOpen,
   Loader2,
+  RotateCw,
+  View,
   X,
   XCircle,
 } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
+
+const ModelViewer = lazy(() => import("./ModelViewer"));
 import {
   decomposeProviderKeys,
   estimateGenerations,
@@ -21,6 +25,9 @@ import {
   jobProgress,
   clearFinishedJobs,
   cancelJob,
+  retryFailed,
+  providerBalance,
+  decomposeAssetUrl,
   decomposeScenePath,
   exportDecomposePack,
   exportPackEstimate,
@@ -36,6 +43,7 @@ import {
   setupDecomposeRuntime,
   useSetupProgress,
   type DecomposeJob,
+  type DecomposedAsset,
   type ModelJob,
   type RuntimeStatus,
 } from "../lib/decompose";
@@ -146,6 +154,29 @@ function ImagePackActions({ jobId, compact }: { jobId: string; compact?: boolean
   );
 }
 
+/** The pipeline's white-background cutout of one detected object, loaded through
+ * the Tauri asset protocol. Falls back to a class-name chip if it can't load. */
+function AssetCutout({ asset, className }: { asset: DecomposedAsset; className?: string }) {
+  const dirName = useAppStore((s) => s.dirName);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let ok = true;
+    if (dirName) {
+      void decomposeAssetUrl(dirName, asset.perspectiveImage).then((u) => ok && setUrl(u));
+    }
+    return () => {
+      ok = false;
+    };
+  }, [dirName, asset.perspectiveImage]);
+  return url ? (
+    <img src={url} alt={asset.class} className={`object-contain bg-white ${className ?? ""}`} />
+  ) : (
+    <div className={`flex items-center justify-center bg-base-800 text-[9px] text-slate-500 ${className ?? ""}`}>
+      {asset.class}
+    </div>
+  );
+}
+
 function ConfirmBlock({
   job,
   providerKeys,
@@ -159,6 +190,29 @@ function ConfirmBlock({
   const [chosen, setChosen] = useState<string[]>(keyed);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(job.assets.map((a) => a.id)),
+  );
+  const [balances, setBalances] = useState<Record<string, number | null>>({});
+
+  useEffect(() => {
+    void providerBalance().then(setBalances).catch(() => {});
+  }, []);
+  // New assets showing up (a re-decompose) → select them too.
+  useEffect(() => {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      for (const a of job.assets) if (!cur.has(a.id)) next.add(a.id);
+      return next;
+    });
+  }, [job.assets]);
+
+  const toggleAsset = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   // Keep the selection in step with which providers actually have a key.
   useEffect(() => {
@@ -172,17 +226,26 @@ function ConfirmBlock({
   const toggle = (p: string) =>
     setChosen((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
 
-  const estimate = estimateGenerations(job, Math.max(chosen.length, 1), quality);
+  const estimate = estimateGenerations(job, Math.max(chosen.length, 1), quality, (id) =>
+    selected.has(id),
+  );
   const hasViews = job.assets.some(
     (a) => a.orthoViews.left || a.orthoViews.back || a.orthoViews.right,
   );
+  const lowBalance = chosen.some(
+    (p) => typeof balances[p] === "number" && (balances[p] as number) < estimate,
+  );
 
   const send = async () => {
-    if (!dirName || chosen.length === 0) return;
+    if (!dirName || chosen.length === 0 || selected.size === 0) return;
     setBusy(true);
     setErr(null);
     try {
-      await submitDecomposition(dirName, job.id, { qualityPath: quality, providers: chosen });
+      await submitDecomposition(dirName, job.id, {
+        qualityPath: quality,
+        providers: chosen,
+        assetIds: [...selected],
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -220,7 +283,53 @@ function ConfirmBlock({
           Generate textured <b className="text-slate-300">.glb</b> models with Tripo / Meshy.
         </p>
 
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-400">
+        {/* object picker — don't pay for junk detections */}
+        <div className="mt-2">
+          <div className="flex items-center justify-between text-slate-500">
+            <span>
+              Objects to generate — <b className="text-slate-300">{selected.size}</b>/
+              {job.assets.length}
+            </span>
+            <button
+              className="hover:text-slate-300"
+              onClick={() =>
+                setSelected((cur) =>
+                  cur.size === job.assets.length
+                    ? new Set()
+                    : new Set(job.assets.map((a) => a.id)),
+                )
+              }
+            >
+              {selected.size === job.assets.length ? "clear all" : "select all"}
+            </button>
+          </div>
+          <div className="mt-1.5 grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-1.5">
+            {job.assets.map((a) => {
+              const on = selected.has(a.id);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => toggleAsset(a.id)}
+                  title={a.class}
+                  className={`relative rounded border text-left transition ${
+                    on ? "border-accent-500" : "border-base-700 opacity-40 hover:opacity-70"
+                  }`}
+                >
+                  <AssetCutout asset={a} className="h-14 w-full rounded-t" />
+                  <div className="truncate px-1 py-0.5 text-[9px] text-slate-400">{a.class}</div>
+                  {on && (
+                    <CheckCircle2
+                      size={12}
+                      className="absolute right-0.5 top-0.5 text-accent-400 drop-shadow"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-400">
           <span className="text-slate-500">Generate with:</span>
           {keyed.map((p) => (
             <label key={p} className="flex items-center gap-1.5 select-none capitalize">
@@ -257,18 +366,28 @@ function ConfirmBlock({
         <div className="mt-1.5 flex items-start gap-1.5 text-amber-300/90">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
           <span>
-            Starts up to <b>{estimate}</b> paid generation(s) — {job.assets.length} object(s), Fast
+            Starts up to <b>{estimate}</b> paid generation(s) — {selected.size} object(s), Fast
             {quality ? " + Quality" : ""} path{quality ? "s" : ""}.
           </span>
         </div>
 
+        {(typeof balances.tripo === "number" || typeof balances.meshy === "number") && (
+          <p className={`mt-1 ${lowBalance ? "text-amber-400" : "text-slate-500"}`}>
+            Balance:{" "}
+            {ALL_PROVIDERS.filter((p) => chosen.includes(p) && typeof balances[p] === "number")
+              .map((p) => `${p} ${Math.round(balances[p] as number)}`)
+              .join(" · ") || "—"}
+            {lowBalance && " — may not cover this run"}
+          </p>
+        )}
+
         {err && <p className="mt-1.5 text-red-400">{err}</p>}
         <button
           onClick={() => void send()}
-          disabled={busy || chosen.length === 0}
+          disabled={busy || chosen.length === 0 || selected.size === 0}
           className="mt-1.5 px-3 py-1 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText disabled:opacity-50"
         >
-          {busy ? "Sending…" : "Send to 3D"}
+          {busy ? "Sending…" : `Send ${selected.size} to 3D`}
         </button>
       </div>
 
@@ -292,7 +411,30 @@ function JobCard({
 }) {
   const dirName = useAppStore((s) => s.dirName);
   const [showUsage, setShowUsage] = useState(false);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const { done, total } = jobProgress(job);
+
+  const failedCount = useMemo(
+    () => job.assets.flatMap((a) => a.models).filter((m) => m.status === "failed").length,
+    [job.assets],
+  );
+
+  const openPreview = (m: ModelJob) => {
+    if (!m.glbPath || !dirName) return;
+    if (previewKey === m.key) {
+      setPreviewKey(null);
+      setPreviewUrl(null);
+      return;
+    }
+    setPreviewKey(m.key);
+    setPreviewUrl(null);
+    void decomposeAssetUrl(dirName, m.glbPath).then(setPreviewUrl);
+  };
+  const previewModel = job.assets
+    .flatMap((a) => a.models)
+    .find((m) => m.key === previewKey);
   const pct =
     job.status === "done"
       ? 100
@@ -369,22 +511,101 @@ function JobCard({
                 ) : null}
               </div>
               <div className="grid grid-cols-2 gap-1.5">
-                {asset.models.map((m) => (
-                  <div
-                    key={m.key}
-                    className="flex items-center gap-1.5 rounded bg-base-800/70 px-2 py-1"
-                    title={m.error ?? undefined}
-                  >
-                    <StatusDot status={m.status} />
-                    <span className="capitalize text-slate-300">{m.provider}</span>
-                    <span className="text-slate-600">·</span>
-                    <span className="text-slate-500">{PATH_LABEL[m.pathKind] ?? m.pathKind}</span>
-                    {m.glbPath && <span className="ml-auto text-[10px] text-emerald-500">GLB</span>}
-                  </div>
-                ))}
+                {asset.models.map((m) => {
+                  const cell = (
+                    <>
+                      <StatusDot status={m.status} />
+                      <span className="capitalize text-slate-300">{m.provider}</span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-slate-500">
+                        {PATH_LABEL[m.pathKind] ?? m.pathKind}
+                      </span>
+                      {m.glbPath &&
+                        (previewKey === m.key ? (
+                          <View size={11} className="ml-auto text-accent-400" />
+                        ) : (
+                          <span className="ml-auto text-[10px] text-emerald-500">GLB</span>
+                        ))}
+                    </>
+                  );
+                  return m.glbPath ? (
+                    <button
+                      key={m.key}
+                      onClick={() => openPreview(m)}
+                      title="Preview this model"
+                      className={`flex items-center gap-1.5 rounded px-2 py-1 text-left ${
+                        previewKey === m.key
+                          ? "bg-accent-500/15 ring-1 ring-accent-500/50"
+                          : "bg-base-800/70 hover:bg-base-800"
+                      }`}
+                    >
+                      {cell}
+                    </button>
+                  ) : (
+                    <div
+                      key={m.key}
+                      className="flex items-center gap-1.5 rounded bg-base-800/70 px-2 py-1"
+                      title={m.error ?? undefined}
+                    >
+                      {cell}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
+
+          {previewKey && (
+            <div className="rounded-md border border-base-700 bg-base-950 p-1.5">
+              <div className="mb-1 flex items-center justify-between text-[10px] text-slate-500">
+                <span className="capitalize">
+                  {previewModel?.provider} · {PATH_LABEL[previewModel?.pathKind ?? ""] ?? previewModel?.pathKind}{" "}
+                  — drag to rotate
+                </span>
+                <button
+                  onClick={() => {
+                    setPreviewKey(null);
+                    setPreviewUrl(null);
+                  }}
+                  className="hover:text-slate-300"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              {previewUrl ? (
+                <Suspense
+                  fallback={
+                    <div className="flex h-56 items-center justify-center text-[11px] text-slate-500">
+                      <Loader2 size={12} className="mr-1.5 animate-spin" /> loading viewer…
+                    </div>
+                  }
+                >
+                  <ModelViewer src={previewUrl} className="h-56 w-full" />
+                </Suspense>
+              ) : (
+                <div className="flex h-56 items-center justify-center text-[11px] text-slate-500">
+                  <Loader2 size={12} className="mr-1.5 animate-spin" /> opening…
+                </div>
+              )}
+            </div>
+          )}
+
+          {failedCount > 0 && !isJobActive(job) && (
+            <button
+              onClick={() => {
+                if (!dirName) return;
+                setRetrying(true);
+                void retryFailed(dirName, job.id)
+                  .catch(() => {})
+                  .finally(() => setRetrying(false));
+              }}
+              disabled={retrying}
+              className="flex items-center gap-1.5 rounded-md border border-amber-500/40 px-2.5 py-1 text-[11px] text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+            >
+              <RotateCw size={12} className={retrying ? "animate-spin" : ""} />
+              {retrying ? "Resubmitting…" : `Retry failed (${failedCount})`}
+            </button>
+          )}
         </div>
       )}
 
