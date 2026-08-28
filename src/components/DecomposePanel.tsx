@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderOpen,
+  Images,
   Loader2,
   RotateCw,
   View,
@@ -37,6 +38,7 @@ import {
   setViewsMode,
   submitDecomposition,
   useDecompositions,
+  useDecomposeIntent,
   useStubMode,
   useViewsMode,
   decomposeRuntimeStatus,
@@ -185,6 +187,7 @@ function ConfirmBlock({
   providerKeys: Record<string, boolean>;
 }) {
   const dirName = useAppStore((s) => s.dirName);
+  const intent = useDecomposeIntent();
   const keyed = ALL_PROVIDERS.filter((p) => providerKeys[p]);
   const [quality, setQuality] = useState(false);
   const [chosen, setChosen] = useState<string[]>(keyed);
@@ -252,16 +255,28 @@ function ConfirmBlock({
     }
   };
 
+  const lead3d = intent === "3d";
+
   return (
-    <div className="mt-2 rounded-md border border-base-600 bg-base-800/40 p-2.5 text-xs">
-      <div className="text-slate-300 font-medium">
-        {job.assets.length} object(s) found — pick a path
+    <div className="mt-2 flex flex-col rounded-md border border-base-600 bg-base-800/40 p-2.5 text-xs">
+      <div className="text-slate-300 font-medium" style={{ order: 0 }}>
+        {job.assets.length} object(s) found —{" "}
+        {lead3d ? "generate 3D models, or grab the images instead" : "grab the image cutouts, or send to 3D instead"}
       </div>
 
       {/* ---- Image path -------------------------------------------------- */}
-      <div className="mt-2.5">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Image path
+      <div
+        className={`mt-2.5 rounded-md border-l-2 pl-2 ${
+          lead3d ? "border-transparent opacity-70" : "border-sky-500"
+        }`}
+        style={{ order: lead3d ? 2 : 1 }}
+      >
+        <div
+          className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${
+            lead3d ? "text-slate-500" : "text-sky-400"
+          }`}
+        >
+          <Images size={12} /> Image path
         </div>
         <p className="mt-0.5 text-slate-400">
           A .zip of every object for your own image-to-3D tool.{" "}
@@ -275,9 +290,18 @@ function ConfirmBlock({
       </div>
 
       {/* ---- 3D path --------------------------------------------------- */}
-      <div className="mt-3 pt-2.5 border-t border-base-700">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          3D path — paid
+      <div
+        className={`mt-3 rounded-md border-l-2 pl-2 ${
+          lead3d ? "border-accent-500" : "border-transparent opacity-70"
+        }`}
+        style={{ order: lead3d ? 1 : 2 }}
+      >
+        <div
+          className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${
+            lead3d ? "text-accent-400" : "text-slate-500"
+          }`}
+        >
+          <Boxes size={12} /> 3D path — paid
         </div>
         <p className="mt-0.5 text-slate-400">
           Generate textured <b className="text-slate-300">.glb</b> models with Tripo / Meshy.
@@ -394,7 +418,8 @@ function ConfirmBlock({
       <button
         onClick={() => hideJob(job.id, dirName ?? undefined)}
         disabled={busy}
-        className="mt-3 text-slate-500 hover:text-slate-300 disabled:opacity-50"
+        className="mt-3 text-left text-slate-500 hover:text-slate-300 disabled:opacity-50"
+        style={{ order: 3 }}
       >
         Discard this decomposition
       </button>

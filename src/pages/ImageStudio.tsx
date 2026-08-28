@@ -1,12 +1,14 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronDown, Download, Expand, Heart, ImagePlus, Loader2, Sparkles, Star, Trash2, Wand2 } from "lucide-react";
+import { Boxes, ChevronDown, Download, Expand, Heart, ImagePlus, Images, Loader2, Sparkles, Star, Trash2, Wand2 } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { DecomposePanel } from "../components/DecomposePanel";
 import {
   decomposeRuntimeStatus,
   getStubMode,
   getViewsMode,
+  setDecomposeIntent,
   startDecompose,
+  type DecomposeIntent,
 } from "../lib/decompose";
 import { buildEditInstruction, buildImageIntent, defaultVariantControls, type ImageVariantControls, type ShotControls } from "../lib/continuity";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
@@ -71,8 +73,9 @@ export function ImageStudioPage() {
   const [decomposeError, setDecomposeError] = useState<string | null>(null);
   const [decomposingAssetId, setDecomposingAssetId] = useState<string | null>(null);
 
-  const handleDecompose = async (asset: Asset) => {
+  const handleDecompose = async (asset: Asset, intent: DecomposeIntent) => {
     if (!dirName) return;
+    setDecomposeIntent(intent);
     setDecomposeError(null);
     setDecomposingAssetId(asset.id);
     try {
@@ -653,19 +656,34 @@ export function ImageStudioPage() {
                         </button>
                       </div>
                     </div>
-                    <button
-                      title="Break this image into its separate objects — then export them as image cutouts, or generate 3D models with Tripo & Meshy. You choose in the panel below."
-                      disabled={decomposingAssetId === asset.id}
-                      onClick={() => void handleDecompose(asset)}
-                      className="w-full flex items-center justify-center gap-1.5 border-t border-accent-500/25 py-2 text-xs font-medium text-accent-300 hover:bg-accent-500 hover:text-accentText disabled:opacity-50 transition"
-                    >
-                      {decomposingAssetId === asset.id ? (
-                        <Loader2 size={13} className="animate-spin" />
-                      ) : (
-                        <Boxes size={13} />
-                      )}
-                      Decompose (3D or images)
-                    </button>
+                    <div className="grid grid-cols-2 border-t border-base-700 text-xs font-medium">
+                      <button
+                        title="Break this image into its objects, then generate textured 3D models (.glb) with Tripo & Meshy."
+                        disabled={decomposingAssetId === asset.id}
+                        onClick={() => void handleDecompose(asset, "3d")}
+                        className="flex items-center justify-center gap-1.5 py-2 text-accent-300 hover:bg-accent-500 hover:text-accentText disabled:opacity-50 transition border-r border-base-700"
+                      >
+                        {decomposingAssetId === asset.id ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Boxes size={13} />
+                        )}
+                        Decompose → 3D
+                      </button>
+                      <button
+                        title="Break this image into its objects and export them as image cutouts (perspective + side views) — a .zip for your own image-to-3D tool. No providers, no spend."
+                        disabled={decomposingAssetId === asset.id}
+                        onClick={() => void handleDecompose(asset, "images")}
+                        className="flex items-center justify-center gap-1.5 py-2 text-sky-300 hover:bg-sky-500 hover:text-white disabled:opacity-50 transition"
+                      >
+                        {decomposingAssetId === asset.id ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Images size={13} />
+                        )}
+                        Decompose → Images
+                      </button>
+                    </div>
                   </div>
                 );
               })}

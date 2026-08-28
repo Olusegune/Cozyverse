@@ -442,6 +442,32 @@ export function useStubMode(): boolean {
   );
 }
 
+// ---- which path the user clicked toward (3D vs images) ----------------
+// Segmentation is identical either way; this only tells the confirm panel
+// which section to lead with / highlight.
+
+export type DecomposeIntent = "3d" | "images";
+let decomposeIntent: DecomposeIntent = "3d";
+const intentListeners = new Set<() => void>();
+
+export function setDecomposeIntent(value: DecomposeIntent) {
+  decomposeIntent = value;
+  intentListeners.forEach((l) => l());
+}
+export function getDecomposeIntent(): DecomposeIntent {
+  return decomposeIntent;
+}
+export function useDecomposeIntent(): DecomposeIntent {
+  return useSyncExternalStore(
+    (cb) => {
+      intentListeners.add(cb);
+      return () => intentListeners.delete(cb);
+    },
+    () => decomposeIntent,
+    () => decomposeIntent,
+  );
+}
+
 // ---- 4-view synthesis toggle -------------------------------------------
 // When on (default), the full pipeline also runs Zero123++ to synthesize
 // left/back/right views per object — needed for the Quality path and for a
