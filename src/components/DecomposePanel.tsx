@@ -9,7 +9,9 @@ import {
   isHidden,
   isJobActive,
   jobProgress,
+  clearFinishedJobs,
   decomposeScenePath,
+  exportDecomposePack,
   revealDecomposeOutput,
   setStubMode,
   submitDecomposition,
@@ -46,8 +48,10 @@ function stageLine(job: DecomposeJob): string {
     }
     case "done":
       return job.message || "Done";
-    case "error":
-      return job.error || job.message || "Failed";
+    case "error": {
+      const msg = job.error || job.message || "Failed";
+      return msg.length > 100 ? msg.slice(0, 100) + "…" : msg;
+    }
   }
 }
 
@@ -125,7 +129,7 @@ function ConfirmBlock({
       </label>
 
       {err && <p className="mt-1.5 text-red-400">{err}</p>}
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           onClick={() => void send()}
           disabled={busy || chosen.length === 0}
@@ -140,6 +144,17 @@ function ConfirmBlock({
         >
           Discard
         </button>
+      </div>
+      <div className="mt-2 pt-2 border-t border-base-700 text-slate-500">
+        Prefer your own 3D tool?{" "}
+        <button
+          onClick={() => dirName && void exportDecomposePack(dirName, job.id).catch(() => {})}
+          disabled={busy}
+          className="text-accent-400 hover:text-accent-300 disabled:opacity-50"
+        >
+          Download image pack (.zip)
+        </button>{" "}
+        — perspective + 4 views per object, no providers, no spend.
       </div>
     </div>
   );
@@ -181,7 +196,12 @@ function JobCard({
           <span className="text-xs text-slate-300 truncate">{job.imagePath}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] text-slate-500">{stageLine(job)}</span>
+          <span
+            className="text-[11px] text-slate-500 max-w-[280px] truncate"
+            title={job.error ?? undefined}
+          >
+            {stageLine(job)}
+          </span>
           {!isJobActive(job) && (
             <button
               onClick={() => hideJob(job.id)}
@@ -252,6 +272,13 @@ function JobCard({
               <FolderOpen size={12} /> Blender scene file
             </button>
           )}
+          <button
+            onClick={() => dirName && void exportDecomposePack(dirName, job.id).catch(() => {})}
+            className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300"
+            title="Save a .zip of the decomposition images (perspective + front/back/left/right per object) for any image-to-3D tool"
+          >
+            <FolderOpen size={12} /> Image pack (.zip)
+          </button>
         </div>
       )}
     </div>
@@ -366,10 +393,20 @@ export function DecomposePanel() {
     void decomposeProviderKeys().then(setProviderKeys);
   }, []);
 
-  const jobs = useMemo(
-    () => allJobs.filter((j) => !isHidden(j.id)).slice(0, 4),
-    [allJobs],
-  );
+  // Show every running/awaiting job, plus just the most recent finished one —
+  // old confirms and failed runs shouldn't pile up.
+  const { jobs, dismissible } = useMemo(() => {
+    const visible = allJobs.filter((j) => !isHidden(j.id));
+    const active = visible.filter(
+      (j) => j.status === "pending" || j.status === "decomposing" || j.status === "modeling",
+    );
+    const awaiting = visible.filter((j) => j.status === "awaiting");
+    const finished = visible.filter((j) => j.status === "done" || j.status === "error");
+    return {
+      jobs: [...active, ...awaiting.slice(0, 2), ...finished.slice(0, 1)],
+      dismissible: awaiting.length + finished.length,
+    };
+  }, [allJobs]);
 
   return (
     <div className="mt-6 rounded-xl border border-base-700 bg-base-900 p-4">
@@ -378,6 +415,14 @@ export function DecomposePanel() {
           <Boxes size={15} className="text-accent-400" />
           <h3 className="text-sm font-medium text-slate-200">Decompose &amp; Send to 3D</h3>
         </div>
+        {dismissible > 1 && (
+          <button
+            onClick={clearFinishedJobs}
+            className="text-[11px] text-slate-500 hover:text-slate-300"
+          >
+            Clear finished
+          </button>
+        )}
         <label
           className="flex items-center gap-1.5 text-[11px] text-slate-400 select-none"
           title="Skip the GPU pipeline — Pillow-only crop, one asset, no ortho views. For shaking out the command/event wiring before spending on the real pipeline. The 3D providers are still called."

@@ -132,6 +132,16 @@ export async function decomposeScenePath(dirName: string, jobId: string): Promis
   return invoke<string>("decompose_scene_path", { dirName, jobId });
 }
 
+/** The "image path": save a .zip of the job's decomposition images (perspective
+ * + front/back/left/right per object + the scene + a manifest) via a Save dialog.
+ * Returns the saved path, or null if cancelled. No providers, no spend. */
+export async function exportDecomposePack(
+  dirName: string,
+  jobId: string,
+): Promise<string | null> {
+  return invoke<string | null>("decompose_export_pack", { dirName, jobId });
+}
+
 // ---- full-pipeline runtime (torch/transformers) --------------------------
 
 export type RuntimeStatus = {
@@ -285,6 +295,15 @@ export function hideJob(id: string) {
 }
 export function isHidden(id: string): boolean {
   return hidden.has(id);
+}
+/** Dismiss every job that isn't currently running (done / error / awaiting). */
+export function clearFinishedJobs() {
+  for (const j of snapshot) {
+    if (j.status === "done" || j.status === "error" || j.status === "awaiting") {
+      hidden.add(j.id);
+    }
+  }
+  rebuild();
 }
 
 // ---- stub-mode toggle (module-level so the panel sets it and Image Studio reads it) ----

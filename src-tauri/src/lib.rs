@@ -595,6 +595,7 @@ pub fn run() {
             decompose::decompose_provider_keys,
             decompose::reveal_decompose_output,
             decompose::decompose_scene_path,
+            decompose::decompose_export_pack,
             decompose_setup::decompose_runtime_status,
             decompose_setup::setup_decompose_runtime,
             app_version,

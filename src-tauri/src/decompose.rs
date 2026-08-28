@@ -864,6 +864,120 @@ pub fn decompose_scene_path(
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// The "image path": zip up a job's decomposition images — the perspective
+/// cutout plus front/back/left/right views per object (whichever the pipeline
+/// produced), the original scene image, and a manifest — and let the user save
+/// it wherever they want. No providers, no spend. Returns the saved path, or
+/// None if the user cancels the dialog.
+#[tauri::command]
+pub async fn decompose_export_pack(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+) -> Result<Option<String>, String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let job = load_state(&project_dir)
+        .jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+    if job.assets.is_empty() {
+        return Err("This job has no decomposed images.".into());
+    }
+
+    let assets_root = project_dir.join("assets");
+    let default_name = format!(
+        "cozyverse-decompose-{}-{}obj.zip",
+        job_id_short(&job.id),
+        job.assets.len()
+    );
+    let dest = match rfd::FileDialog::new()
+        .add_filter("Zip archive", &["zip"])
+        .set_file_name(&default_name)
+        .save_file()
+    {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    let file = fs::File::create(&dest).map_err(|e| format!("Could not create the zip: {e}"))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let add = |zip: &mut zip::ZipWriter<fs::File>, name: &str, path: &Path| -> Result<bool, String> {
+        if !path.is_file() {
+            return Ok(false);
+        }
+        zip.start_file(name, opts).map_err(|e| e.to_string())?;
+        let bytes = fs::read(path).map_err(|e| e.to_string())?;
+        std::io::Write::write_all(zip, &bytes).map_err(|e| e.to_string())?;
+        Ok(true)
+    };
+
+    let source = assets_root.join(&job.image_path);
+    if source.is_file() {
+        let ext = source
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png");
+        add(&mut zip, &format!("scene/original.{ext}"), &source)?;
+    }
+
+    let mut manifest_objects = Vec::new();
+    for (i, a) in job.assets.iter().enumerate() {
+        let slug: String = a
+            .class
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+            .collect();
+        let folder = format!("objects/{i:02}_{slug}");
+        let mut files = Map::new();
+
+        if add(
+            &mut zip,
+            &format!("{folder}/perspective.png"),
+            &assets_root.join(&a.perspective_image),
+        )? {
+            files.insert("perspective".into(), json!("perspective.png"));
+        }
+        for (name, rel) in [
+            ("front", &a.ortho_views.front),
+            ("back", &a.ortho_views.back),
+            ("left", &a.ortho_views.left),
+            ("right", &a.ortho_views.right),
+        ] {
+            if let Some(rel) = rel {
+                if add(&mut zip, &format!("{folder}/{name}.png"), &assets_root.join(rel))? {
+                    files.insert(name.into(), json!(format!("{name}.png")));
+                }
+            }
+        }
+        manifest_objects.push(json!({
+            "id": a.id,
+            "class": a.class,
+            "bbox": a.bbox,
+            "folder": folder,
+            "files": files,
+        }));
+    }
+
+    let manifest = serde_json::to_string_pretty(&json!({
+        "app": "Cozyverse Studio",
+        "job": job.id,
+        "sourceImage": job.image_path,
+        "objectCount": job.assets.len(),
+        "objects": manifest_objects,
+        "note": "perspective.png = object cut out on white. front/back/left/right = synthesized orthographic views (present only when the full pipeline ran). Feed these into any image-to-3D tool.",
+    }))
+    .unwrap();
+    zip.start_file("manifest.json", opts).map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut zip, manifest.as_bytes()).map_err(|e| e.to_string())?;
+
+    zip.finish().map_err(|e| format!("Could not finish the zip: {e}"))?;
+    Ok(Some(dest.to_string_lossy().into_owned()))
+}
+
 // ---------------------------------------------------------------- python bridge
 
 #[derive(Deserialize)]

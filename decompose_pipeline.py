@@ -149,7 +149,28 @@ def run_lite(image_path: Path, out_dir: Path) -> list[dict]:
 
     log("[1/2] YOLO-World — detecting objects (CPU)")
     model = YOLO("yolov8s-worldv2.pt")
-    model.set_classes(LITE_VOCAB)
+    try:
+        model.set_classes(LITE_VOCAB)
+    except Exception as e:  # noqa: BLE001
+        # A half-finished CLIP weight download (e.g. two runs racing) leaves a
+        # corrupt file that fails forever with a checksum error. Nuke it and retry.
+        if "checksum" in str(e).lower() or "sha256" in str(e).lower():
+            import shutil
+            for root in (
+                Path.home() / ".cache" / "clip",
+                Path.home() / ".u2net",
+            ):
+                shutil.rmtree(root, ignore_errors=True)
+            try:
+                from ultralytics.nn.text_model import WEIGHTS_DIR
+                shutil.rmtree(Path(WEIGHTS_DIR) / "clip", ignore_errors=True)
+            except Exception:
+                pass
+            log("      cleared a corrupt CLIP weight; re-fetching")
+            model = YOLO("yolov8s-worldv2.pt")
+            model.set_classes(LITE_VOCAB)
+        else:
+            raise
     res = model.predict(
         source=str(image_path), conf=0.12, iou=0.5, max_det=MAX_ASSETS, verbose=False
     )[0]
