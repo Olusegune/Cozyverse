@@ -1,3 +1,4 @@
+mod decompose;
 mod providers;
 mod video_export;
 
@@ -586,6 +587,11 @@ pub fn run() {
             video_export::render_scene_video,
             video_export::render_timeline_shot,
             video_export::finish_timeline_render,
+            decompose::decompose_image,
+            decompose::submit_decomposition,
+            decompose::get_decomposition,
+            decompose::list_decompositions,
+            decompose::decompose_provider_keys,
             app_version,
         ])
         .run(tauri::generate_context!())

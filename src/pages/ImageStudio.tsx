@@ -1,6 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Download, Expand, Heart, ImagePlus, Loader2, Sparkles, Star, Trash2, Wand2 } from "lucide-react";
+import { Boxes, ChevronDown, Download, Expand, Heart, ImagePlus, Loader2, Sparkles, Star, Trash2, Wand2 } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
+import { DecomposePanel } from "../components/DecomposePanel";
+import { startDecompose } from "../lib/decompose";
 import { buildEditInstruction, buildImageIntent, defaultVariantControls, type ImageVariantControls, type ShotControls } from "../lib/continuity";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
@@ -60,6 +62,24 @@ export function ImageStudioPage() {
   const [useReal, setUseReal] = useState(false);
   const [hasConnectedProvider, setHasConnectedProvider] = useState(false);
   const [lightboxAsset, setLightboxAsset] = useState<Asset | null>(null);
+  const dirName = useAppStore((state) => state.dirName);
+  const [decomposeError, setDecomposeError] = useState<string | null>(null);
+  const [decomposingAssetId, setDecomposingAssetId] = useState<string | null>(null);
+
+  const handleDecompose = async (asset: Asset) => {
+    if (!dirName) return;
+    setDecomposeError(null);
+    setDecomposingAssetId(asset.id);
+    try {
+      // submit:false → segment now, then the panel shows the object count and
+      // cost estimate and the user confirms the (paid) 3D fan-out.
+      await startDecompose(dirName, asset.filePath, { submit: false, qualityPath: true });
+    } catch (error) {
+      setDecomposeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDecomposingAssetId(null);
+    }
+  };
   const [styleStackOpen, setStyleStackOpen] = useState(false);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
   const [rawPromptEnabled, setRawPromptEnabled] = useState(false);
@@ -589,6 +609,17 @@ export function ImageStudioPage() {
                         >
                           <Expand size={13} />
                         </button>
+                        <button
+                          title="Decompose & Send to 3D"
+                          disabled={decomposingAssetId === asset.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDecompose(asset);
+                          }}
+                          className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 text-white disabled:opacity-50"
+                        >
+                          {decomposingAssetId === asset.id ? <Loader2 size={13} className="animate-spin" /> : <Boxes size={13} />}
+                        </button>
                       </div>
                     </div>
                     <div className="p-2.5 flex items-center justify-between gap-2">
@@ -610,6 +641,11 @@ export function ImageStudioPage() {
               })}
             </div>
           )}
+
+          {decomposeError && (
+            <p className="mt-4 text-xs text-red-400">{decomposeError}</p>
+          )}
+          <DecomposePanel />
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import { CheckCircle2, KeyRound, Loader2, Trash2, XCircle } from "lucide-react";
 import * as api from "../lib/api";
 import { LocalModelsSection } from "../components/LocalModelsSection";
 
-type ProviderId = "fal" | "kie" | "wavespeed" | "gemini" | "elevenlabs" | "openai";
+type ProviderId = "fal" | "kie" | "wavespeed" | "gemini" | "elevenlabs" | "openai" | "tripo" | "meshy";
 
 const PROVIDERS: Array<{ id: ProviderId; label: string; description: string; keyUrl: string }> = [
   { id: "fal", label: "fal.ai", description: "Nano Banana 2 for images.", keyUrl: "fal.ai/dashboard/keys" },
@@ -12,16 +12,18 @@ const PROVIDERS: Array<{ id: ProviderId; label: string; description: string; key
   { id: "gemini", label: "Google Gemini", description: "Native Nano Banana image generation and editing.", keyUrl: "aistudio.google.com/apikey" },
   { id: "elevenlabs", label: "ElevenLabs", description: "Real voice design for dialogue — uses every voice on your account.", keyUrl: "elevenlabs.io/app/settings/api-keys" },
   { id: "openai", label: "OpenAI", description: "GPT Image 2 for images and edits.", keyUrl: "platform.openai.com/api-keys" },
+  { id: "tripo", label: "Tripo", description: "Image-to-3D and multi-view-to-3D for Decompose & Send to 3D.", keyUrl: "platform.tripo3d.ai/api-keys" },
+  { id: "meshy", label: "Meshy", description: "Image-to-3D and multi-image-to-3D for Decompose & Send to 3D.", keyUrl: "meshy.ai/api-keys" },
 ];
 
 type ConnectionState = { checking: boolean; result?: { reachable: boolean; authenticated: boolean; detail: string } };
 
 export function SettingsPage() {
-  const [configured, setConfigured] = useState<Record<ProviderId, boolean>>({ fal: false, kie: false, wavespeed: false, gemini: false, elevenlabs: false, openai: false });
-  const [drafts, setDrafts] = useState<Record<ProviderId, string>>({ fal: "", kie: "", wavespeed: "", gemini: "", elevenlabs: "", openai: "" });
+  const [configured, setConfigured] = useState<Record<ProviderId, boolean>>({ fal: false, kie: false, wavespeed: false, gemini: false, elevenlabs: false, openai: false, tripo: false, meshy: false });
+  const [drafts, setDrafts] = useState<Record<ProviderId, string>>({ fal: "", kie: "", wavespeed: "", gemini: "", elevenlabs: "", openai: "", tripo: "", meshy: "" });
   const [saving, setSaving] = useState<ProviderId | null>(null);
-  const [connections, setConnections] = useState<Record<ProviderId, ConnectionState>>({ fal: { checking: false }, kie: { checking: false }, wavespeed: { checking: false }, gemini: { checking: false }, elevenlabs: { checking: false }, openai: { checking: false } });
-  const [errors, setErrors] = useState<Record<ProviderId, string | null>>({ fal: null, kie: null, wavespeed: null, gemini: null, elevenlabs: null, openai: null });
+  const [connections, setConnections] = useState<Record<ProviderId, ConnectionState>>({ fal: { checking: false }, kie: { checking: false }, wavespeed: { checking: false }, gemini: { checking: false }, elevenlabs: { checking: false }, openai: { checking: false }, tripo: { checking: false }, meshy: { checking: false } });
+  const [errors, setErrors] = useState<Record<ProviderId, string | null>>({ fal: null, kie: null, wavespeed: null, gemini: null, elevenlabs: null, openai: null, tripo: null, meshy: null });
 
   const refresh = async () => {
     const results = await Promise.all(

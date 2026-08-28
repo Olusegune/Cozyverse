@@ -124,6 +124,11 @@ pub async fn check_provider_connection(provider: String) -> Result<ProviderConne
         "kie" => ("https://api.kie.ai/api/v1/jobs/recordInfo?taskId=cozyverse-connection-check".to_owned(), format!("Bearer {key}")),
         "wavespeed" => ("https://api.wavespeed.ai/api/v3/predictions/cozyverse-connection-check/result".to_owned(), format!("Bearer {key}")),
         "openai" => ("https://api.openai.com/v1/models".to_owned(), format!("Bearer {key}")),
+        // Tripo/Meshy 3D providers, used by the Decompose & Send to 3D pipeline.
+        // Their balance endpoints are read-only and return 401/403 on a bad key,
+        // which is exactly the signal this check keys off.
+        "tripo" => ("https://api.tripo3d.ai/v2/openapi/user/balance".to_owned(), format!("Bearer {key}")),
+        "meshy" => ("https://api.meshy.ai/openapi/v1/balance".to_owned(), format!("Bearer {key}")),
         _ => return Err("Unknown provider".into()),
     };
     let client = provider_http_client()?;
