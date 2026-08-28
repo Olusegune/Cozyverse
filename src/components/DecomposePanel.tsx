@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   FolderOpen,
   Loader2,
+  Play,
   RotateCw,
   View,
   X,
@@ -56,13 +57,6 @@ import {
 
 const PATH_LABEL: Record<string, string> = { fast: "Fast", quality: "Quality", library: "Library" };
 
-function StatusDot({ status }: { status: ModelJob["status"] }) {
-  if (status === "succeeded") return <CheckCircle2 size={13} className="text-emerald-400" />;
-  if (status === "failed") return <XCircle size={13} className="text-red-400" />;
-  if (status === "running") return <Loader2 size={13} className="text-accent-400 animate-spin" />;
-  return <span className="inline-block w-[13px] h-[13px] rounded-full border border-base-600" />;
-}
-
 function stageLine(job: DecomposeJob): string {
   switch (job.status) {
     case "pending":
@@ -70,7 +64,7 @@ function stageLine(job: DecomposeJob): string {
     case "decomposing":
       return "Segmenting & generating views…";
     case "awaiting":
-      return `${job.assets.length} object(s) found`;
+      return "choose a path below";
     case "modeling": {
       const { done, total } = jobProgress(job);
       return `Modeling — ${done}/${total} done`;
@@ -180,6 +174,57 @@ function AssetCutout({ asset, className }: { asset: DecomposedAsset; className?:
     <div className={`flex items-center justify-center bg-base-800 text-[9px] text-slate-500 ${className ?? ""}`}>
       {asset.class}
     </div>
+  );
+}
+
+/** A polished object card: the cutout on a soft light stage, a legible label,
+ * and an overlay slot for a badge (checkbox / play / status). One look for the
+ * confirm-block picker and the finished-job gallery. */
+function ObjectThumb({
+  asset,
+  imgH = "h-24",
+  active,
+  dim,
+  onClick,
+  overlay,
+  footer,
+  title,
+}: {
+  asset: DecomposedAsset;
+  imgH?: string;
+  active?: boolean;
+  dim?: boolean;
+  onClick?: () => void;
+  overlay?: ReactNode;
+  footer?: ReactNode;
+  title?: string;
+}) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag
+      onClick={onClick}
+      title={title ?? asset.class}
+      className={`group relative flex flex-col overflow-hidden rounded-lg border text-left transition-all ${
+        active
+          ? "border-accent-500 ring-2 ring-accent-500/30"
+          : "border-base-700 hover:border-base-600"
+      } ${dim ? "opacity-55 grayscale hover:opacity-90 hover:grayscale-0" : ""}`}
+    >
+      <div
+        className={`relative w-full ${imgH}`}
+        style={{
+          background:
+            "radial-gradient(120% 90% at 50% 0%, #fefefe 0%, #f1f0ee 55%, #d9d8d5 100%)",
+        }}
+      >
+        <AssetCutout asset={asset} className="absolute inset-0 h-full w-full p-1.5" />
+        {overlay && <div className="absolute inset-0">{overlay}</div>}
+      </div>
+      <div className="truncate border-t border-base-800 bg-base-900/90 px-1.5 py-1 text-[10px] capitalize text-slate-300">
+        {asset.class}
+      </div>
+      {footer}
+    </Tag>
   );
 }
 
@@ -344,20 +389,21 @@ function ConfirmBlock({
       </div>
 
       {/* shared object grid */}
-      <div className="px-2.5 pt-2">
+      <div className="px-3 pt-2.5">
         <div className="flex items-center justify-between text-slate-500">
           <span>
             {tab === "library" ? (
-              <>Pick an object to swap for a ready-made model</>
+              <>Tap an object to swap it for a ready-made model</>
             ) : (
               <>
-                <b className="text-slate-300">{selected.size}</b>/{job.assets.length} selected
+                <b className="text-slate-200">{selected.size}</b> of {job.assets.length} objects
+                selected
               </>
             )}
           </span>
           {tab !== "library" && (
             <button
-              className="hover:text-slate-300"
+              className="rounded px-1.5 py-0.5 hover:bg-base-700/60 hover:text-slate-200"
               onClick={() =>
                 setSelected(allSelected ? new Set() : new Set(job.assets.map((a) => a.id)))
               }
@@ -366,16 +412,18 @@ function ConfirmBlock({
             </button>
           )}
         </div>
-        <div className="mt-1.5 grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-1.5">
+        <div className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2">
           {job.assets.map((a) => {
             const on = selected.has(a.id);
             const lib = a.models.find((m) => m.provider === "library");
             const libMode = tab === "library";
-            const dim = libMode ? false : !on;
+            const chosenHere = libMode ? openLib === a.id : on;
             return (
-              <button
+              <ObjectThumb
                 key={a.id}
-                title={a.class}
+                asset={a}
+                active={chosenHere || (libMode && !!lib)}
+                dim={!libMode && !on}
                 onClick={() => {
                   if (libMode) {
                     setOpenLib((cur) => (cur === a.id ? null : a.id));
@@ -384,31 +432,24 @@ function ConfirmBlock({
                     toggleAsset(a.id);
                   }
                 }}
-                className={`relative overflow-hidden rounded-md border text-left transition ${
-                  libMode && openLib === a.id
-                    ? "border-emerald-500 ring-1 ring-emerald-500/40"
-                    : (libMode && lib) || (!libMode && on)
-                      ? "border-accent-500/70"
-                      : "border-base-700"
-                } ${dim ? "opacity-45 hover:opacity-80" : ""}`}
-              >
-                <AssetCutout asset={a} className="h-14 w-full" />
-                <div className="truncate bg-base-900/80 px-1 py-0.5 text-[9px] capitalize text-slate-300">
-                  {a.class}
-                </div>
-                {/* corner badge */}
-                <span className="absolute right-1 top-1">
-                  {libMode ? (
-                    lib ? (
-                      <CheckCircle2 size={13} className="text-emerald-400 drop-shadow" />
-                    ) : null
-                  ) : on ? (
-                    <CheckCircle2 size={13} className="text-accent-400 drop-shadow" />
-                  ) : (
-                    <span className="block h-3 w-3 rounded-full border border-white/50 bg-black/30" />
-                  )}
-                </span>
-              </button>
+                overlay={
+                  <span className="absolute right-1.5 top-1.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
+                    {libMode ? (
+                      lib ? (
+                        <CheckCircle2 size={16} className="fill-emerald-500 text-white" />
+                      ) : (
+                        <span className="block rounded-full bg-black/25 px-1.5 py-px text-[9px] font-medium text-white">
+                          swap
+                        </span>
+                      )
+                    ) : on ? (
+                      <CheckCircle2 size={16} className="fill-accent-500 text-white" />
+                    ) : (
+                      <span className="block h-3.5 w-3.5 rounded-full border-2 border-white/70 bg-black/20" />
+                    )}
+                  </span>
+                }
+              />
             );
           })}
         </div>
@@ -556,7 +597,7 @@ function ConfirmBlock({
                       </p>
                     )}
                     {Array.isArray(list) && !lib && list.length > 0 && (
-                      <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                      <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                         {list.map((c) => (
                           <button
                             key={c.id}
@@ -565,19 +606,24 @@ function ConfirmBlock({
                             title={`${c.name} · ${c.author} · ${c.license}${
                               c.polycount ? ` · ${c.polycount.toLocaleString()} tris` : ""
                             }`}
-                            className="w-[72px] shrink-0 overflow-hidden rounded border border-base-700 hover:border-accent-500 disabled:opacity-50"
+                            className="group w-[92px] shrink-0 overflow-hidden rounded-lg border border-base-700 transition hover:border-emerald-500 hover:ring-2 hover:ring-emerald-500/25 disabled:opacity-50"
                           >
                             <img
                               src={c.thumbnailUrl}
                               alt={c.name}
-                              className="h-[72px] w-[72px] bg-white object-cover"
+                              className="h-[92px] w-[92px] bg-white object-cover"
                             />
-                            <div className="truncate px-1 py-0.5 text-[9px] text-slate-400">
+                            <div className="truncate border-t border-base-800 bg-base-900/90 px-1 py-1 text-[9px] text-slate-300">
                               {c.name}
                             </div>
                           </button>
                         ))}
                       </div>
+                    )}
+                    {libBusy === a.id && (
+                      <p className="mt-1.5 flex items-center gap-1.5 text-[10px] text-emerald-400/90">
+                        <Loader2 size={11} className="animate-spin" /> downloading model + textures…
+                      </p>
                     )}
                     {Array.isArray(list) && !lib && list.length === 0 && (
                       <p className="mt-2 text-[10px] text-slate-500">
@@ -701,130 +747,166 @@ function JobCard({
         <ConfirmBlock job={job} providerKeys={providerKeys} />
       )}
 
-      {job.submitted && job.assets.some((a) => a.models.length > 0) && (
-        <div className="mt-3 space-y-2">
-          {job.assets.map((asset) => (
-            <div key={asset.id} className="text-xs">
-              <div className="text-slate-400 mb-1">
-                {asset.class}
-                {asset.orthoViews.front && asset.orthoViews.left ? (
-                  <span className="ml-1.5 text-[10px] text-slate-600">4-view</span>
-                ) : null}
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {asset.models.map((m) => {
-                  const cell = (
-                    <>
-                      <StatusDot status={m.status} />
-                      <span className="capitalize text-slate-300">{m.provider}</span>
-                      <span className="text-slate-600">·</span>
-                      <span className="text-slate-500">
-                        {PATH_LABEL[m.pathKind] ?? m.pathKind}
-                      </span>
-                      {m.glbPath &&
-                        (previewKey === m.key ? (
-                          <View size={11} className="ml-auto text-accent-400" />
-                        ) : (
-                          <span className="ml-auto text-[10px] text-emerald-500">GLB</span>
-                        ))}
-                    </>
+      {job.submitted &&
+        job.assets.some((a) => a.models.length > 0) &&
+        (() => {
+          const withModels = job.assets.filter((a) => a.models.length > 0);
+          const skipped = job.assets.length - withModels.length;
+          const libModels = job.assets
+            .flatMap((a) => a.models)
+            .filter((m) => m.provider === "library");
+          return (
+            <div className="mt-3 space-y-2.5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2">
+                {withModels.map((asset) => {
+                  const glbModel = asset.models.find((m) => m.glbPath);
+                  const anyRunning = asset.models.some(
+                    (m) => m.status === "running" || m.status === "pending",
                   );
-                  return m.glbPath ? (
-                    <button
-                      key={m.key}
-                      onClick={() => openPreview(m)}
-                      title="Preview this model"
-                      className={`flex items-center gap-1.5 rounded px-2 py-1 text-left ${
-                        previewKey === m.key
-                          ? "bg-accent-500/15 ring-1 ring-accent-500/50"
-                          : "bg-base-800/70 hover:bg-base-800"
-                      }`}
-                    >
-                      {cell}
-                    </button>
-                  ) : (
-                    <div
-                      key={m.key}
-                      className="flex items-center gap-1.5 rounded bg-base-800/70 px-2 py-1"
-                      title={m.error ?? undefined}
-                    >
-                      {cell}
-                    </div>
+                  const allFailed = asset.models.every((m) => m.status === "failed");
+                  const previewOpenHere = asset.models.some((m) => m.key === previewKey);
+                  return (
+                    <ObjectThumb
+                      key={asset.id}
+                      asset={asset}
+                      imgH="h-28"
+                      active={previewOpenHere}
+                      onClick={glbModel ? () => openPreview(glbModel) : undefined}
+                      title={glbModel ? "Preview this model" : asset.class}
+                      overlay={
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          {glbModel ? (
+                            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
+                              {previewOpenHere ? <View size={15} /> : <Play size={15} className="ml-0.5" />}
+                            </span>
+                          ) : anyRunning ? (
+                            <Loader2 size={18} className="animate-spin text-white/90 drop-shadow" />
+                          ) : allFailed ? (
+                            <XCircle size={18} className="text-red-400 drop-shadow" />
+                          ) : null}
+                        </div>
+                      }
+                      footer={
+                        <div className="flex flex-wrap gap-1 bg-base-900/90 px-1.5 pb-1.5">
+                          {asset.models.map((m) => {
+                            const tone =
+                              m.status === "succeeded"
+                                ? "bg-emerald-500/15 text-emerald-300"
+                                : m.status === "failed"
+                                  ? "bg-red-500/15 text-red-300"
+                                  : "bg-base-700 text-slate-400";
+                            return (
+                              <button
+                                key={m.key}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (m.glbPath) openPreview(m);
+                                }}
+                                title={
+                                  m.error ??
+                                  `${m.provider} · ${PATH_LABEL[m.pathKind] ?? m.pathKind} · ${m.status}`
+                                }
+                                className={`rounded px-1 py-px text-[9px] capitalize ${tone} ${
+                                  m.key === previewKey ? "ring-1 ring-accent-400" : ""
+                                }`}
+                              >
+                                {m.provider === "library" ? "library" : m.provider}
+                                {m.provider !== "library" &&
+                                  ` ${(PATH_LABEL[m.pathKind] ?? m.pathKind).slice(0, 1)}`}
+                                {m.status === "running" || m.status === "pending" ? " …" : ""}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      }
+                    />
                   );
                 })}
               </div>
-            </div>
-          ))}
 
-          {(() => {
-            const lib = job.assets
-              .flatMap((a) => a.models)
-              .filter((m) => m.provider === "library");
-            return lib.length > 0 ? (
-              <p className="text-[10px] text-slate-500">
-                CC0 assets ({lib.length}) — attribution in the project's{" "}
-                <span className="text-slate-400">CREDITS.txt</span>:{" "}
-                {lib
-                  .map((m) => m.author)
-                  .filter((v, i, arr) => v && arr.indexOf(v) === i)
-                  .join(", ")}
-              </p>
-            ) : null;
-          })()}
+              {skipped > 0 && (
+                <p className="text-[10px] text-slate-600">
+                  {skipped} object{skipped === 1 ? "" : "s"} not sent
+                </p>
+              )}
 
-          {previewKey && (
-            <div className="rounded-md border border-base-700 bg-base-950 p-1.5">
-              <div className="mb-1 flex items-center justify-between text-[10px] text-slate-500">
-                <span className="capitalize">
-                  {previewModel?.provider} · {PATH_LABEL[previewModel?.pathKind ?? ""] ?? previewModel?.pathKind}{" "}
-                  — drag to rotate
-                </span>
-                <button
-                  onClick={() => {
-                    setPreviewKey(null);
-                    setPreviewUrl(null);
-                  }}
-                  className="hover:text-slate-300"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-              {previewUrl ? (
-                <Suspense
-                  fallback={
-                    <div className="flex h-56 items-center justify-center text-[11px] text-slate-500">
-                      <Loader2 size={12} className="mr-1.5 animate-spin" /> loading viewer…
-                    </div>
-                  }
-                >
-                  <ModelViewer src={previewUrl} className="h-56 w-full" />
-                </Suspense>
-              ) : (
-                <div className="flex h-56 items-center justify-center text-[11px] text-slate-500">
-                  <Loader2 size={12} className="mr-1.5 animate-spin" /> opening…
+              {libModels.length > 0 && (
+                <p className="text-[10px] text-slate-500">
+                  {libModels.length} CC0 asset{libModels.length === 1 ? "" : "s"} — credits in{" "}
+                  <span className="text-slate-400">CREDITS.txt</span>:{" "}
+                  {libModels
+                    .map((m) => m.author)
+                    .filter((v, i, arr) => v && arr.indexOf(v) === i)
+                    .join(", ")}
+                </p>
+              )}
+
+              {previewKey && (
+                <div className="overflow-hidden rounded-lg border border-base-700">
+                  <div className="flex items-center justify-between bg-base-900 px-2.5 py-1.5 text-[10px] text-slate-400">
+                    <span className="capitalize">
+                      {previewModel?.provider === "library"
+                        ? "library asset"
+                        : `${previewModel?.provider} · ${
+                            PATH_LABEL[previewModel?.pathKind ?? ""] ?? previewModel?.pathKind
+                          }`}{" "}
+                      <span className="text-slate-600">— drag to rotate · scroll to zoom</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        setPreviewKey(null);
+                        setPreviewUrl(null);
+                      }}
+                      className="hover:text-slate-200"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                  <div
+                    className="h-64 w-full"
+                    style={{
+                      background:
+                        "radial-gradient(90% 70% at 50% 35%, #23262e 0%, #14161b 70%, #0d0e12 100%)",
+                    }}
+                  >
+                    {previewUrl ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex h-full items-center justify-center text-[11px] text-slate-500">
+                            <Loader2 size={12} className="mr-1.5 animate-spin" /> loading viewer…
+                          </div>
+                        }
+                      >
+                        <ModelViewer src={previewUrl} className="h-full w-full !bg-transparent" />
+                      </Suspense>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-[11px] text-slate-500">
+                        <Loader2 size={12} className="mr-1.5 animate-spin" /> opening…
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {failedCount > 0 && !isJobActive(job) && (
-            <button
-              onClick={() => {
-                if (!dirName) return;
-                setRetrying(true);
-                void retryFailed(dirName, job.id)
-                  .catch(() => {})
-                  .finally(() => setRetrying(false));
-              }}
-              disabled={retrying}
-              className="flex items-center gap-1.5 rounded-md border border-amber-500/40 px-2.5 py-1 text-[11px] text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
-            >
-              <RotateCw size={12} className={retrying ? "animate-spin" : ""} />
-              {retrying ? "Resubmitting…" : `Retry failed (${failedCount})`}
-            </button>
-          )}
-        </div>
-      )}
+              {failedCount > 0 && !isJobActive(job) && (
+                <button
+                  onClick={() => {
+                    if (!dirName) return;
+                    setRetrying(true);
+                    void retryFailed(dirName, job.id)
+                      .catch(() => {})
+                      .finally(() => setRetrying(false));
+                  }}
+                  disabled={retrying}
+                  className="flex items-center gap-1.5 rounded-md border border-amber-500/40 px-2.5 py-1 text-[11px] text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                >
+                  <RotateCw size={12} className={retrying ? "animate-spin" : ""} />
+                  {retrying ? "Resubmitting…" : `Retry failed (${failedCount})`}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
       {job.assets.some((a) => a.models.some((m) => m.glbPath)) && (
         <>
