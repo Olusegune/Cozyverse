@@ -37,6 +37,7 @@ import {
   decomposeScenePath,
   exportDecomposePack,
   exportPackEstimate,
+  type ExportPackEstimate,
   useExportProgress,
   revealDecomposeOutput,
   setStubMode,
@@ -86,18 +87,27 @@ const ALL_PROVIDERS = ["tripo", "meshy"] as const;
 function ImagePackActions({ jobId, compact }: { jobId: string; compact?: boolean }) {
   const dirName = useAppStore((s) => s.dirName);
   const progress = useExportProgress();
-  const [est, setEst] = useState<{ totalImages: number; provider: string | null } | null>(null);
+  const [est, setEst] = useState<ExportPackEstimate | null>(null);
   const [busy, setBusy] = useState<"free" | "ai" | null>(null);
+  const [engine, setEngine] = useState<string>("");
 
   useEffect(() => {
-    if (dirName) void exportPackEstimate(dirName, jobId).then(setEst).catch(() => {});
+    if (dirName)
+      void exportPackEstimate(dirName, jobId)
+        .then((e) => {
+          setEst(e);
+          if (e.engines[0] && !engine) setEngine(e.engines[0].id);
+        })
+        .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirName, jobId]);
 
   const active = progress && progress.jobId === jobId && progress.done < progress.total;
+  const engines = est?.engines ?? [];
   const run = (aiViews: boolean) => {
     if (!dirName) return;
     setBusy(aiViews ? "ai" : "free");
-    void exportDecomposePack(dirName, jobId, aiViews)
+    void exportDecomposePack(dirName, jobId, aiViews, aiViews ? engine : undefined)
       .catch(() => {})
       .finally(() => setBusy(null));
   };
@@ -119,11 +129,11 @@ function ImagePackActions({ jobId, compact }: { jobId: string; compact?: boolean
         </button>
         <button
           onClick={() => run(true)}
-          disabled={busy !== null || !!active || est?.provider == null}
+          disabled={busy !== null || !!active || engines.length === 0}
           title={
-            est?.provider == null
-              ? "Needs a Gemini or OpenAI API key (Settings)"
-              : `Re-render all 5 views per object as clean white-background images via ${est.provider}. ~${est.totalImages} paid image generations.`
+            engines.length === 0
+              ? "Needs a Gemini, fal, or OpenAI API key (Settings)"
+              : `Re-render all 5 views per object (perspective + front/back/left/right) as clean white-background images. ~${est?.totalImages ?? "?"} paid generations.`
           }
           className={
             compact
@@ -136,6 +146,21 @@ function ImagePackActions({ jobId, compact }: { jobId: string; compact?: boolean
             ? "Rendering…"
             : `AI turnaround${est ? ` · ~${est.totalImages} imgs` : ""} (paid)`}
         </button>
+        {engines.length > 0 && (
+          <select
+            value={engine}
+            onChange={(e) => setEngine(e.target.value)}
+            disabled={busy !== null || !!active}
+            title="Which image model renders the views"
+            className="rounded-md border border-base-600 bg-base-800 px-1.5 py-1 text-[11px] text-slate-300 disabled:opacity-50"
+          >
+            {engines.map((en) => (
+              <option key={en.id} value={en.id}>
+                {en.label} — {en.note}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       {active && (
         <div className="mt-1.5">

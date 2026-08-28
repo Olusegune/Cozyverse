@@ -466,39 +466,89 @@ async fn openai_edit_image(prompt: &str, aspect_ratio: &str, image_mime: &str, i
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
-/// Which image-edit-capable provider the decompose "AI turnaround" pack would
-/// use, if any: Gemini first (nano-banana — best identity preservation for the
-/// price), then OpenAI (gpt-image-2).
-pub(crate) fn image_edit_provider() -> Option<&'static str> {
-    if provider_key("gemini").is_ok() {
-        Some("gemini")
-    } else if provider_key("openai").is_ok() {
-        Some("openai")
-    } else {
-        None
+/// Image-edit engines the decompose "AI turnaround" pack can drive, filtered to
+/// the ones whose provider key is present. `id` is what `edit_subject_image`
+/// takes; the frontend shows `label` / `note`. Order = our default preference.
+pub(crate) fn image_edit_engines() -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let has = |p: &str| provider_key(p).is_ok();
+    if has("gemini") {
+        out.push(serde_json::json!({
+            "id": "gemini",
+            "label": "Gemini · Nano Banana",
+            "note": "best identity match, cheapest",
+        }));
     }
+    if has("fal") {
+        out.push(serde_json::json!({
+            "id": "fal:fal-ai/nano-banana/edit",
+            "label": "fal · Nano Banana (edit)",
+            "note": "same model on fal's infra",
+        }));
+        out.push(serde_json::json!({
+            "id": "fal:fal-ai/flux-pro/kontext",
+            "label": "fal · FLUX.1 Kontext [pro]",
+            "note": "sharpest edits, higher cost",
+        }));
+        out.push(serde_json::json!({
+            "id": "fal:fal-ai/bytedance/seedream/v4/edit",
+            "label": "fal · Seedream 4.0 (edit)",
+            "note": "strong on clean product shots",
+        }));
+    }
+    if has("openai") {
+        out.push(serde_json::json!({
+            "id": "openai",
+            "label": "OpenAI · gpt-image-2",
+            "note": "reliable, pricier",
+        }));
+    }
+    out
 }
 
-/// One synchronous image-to-image call: subject image (`data:` URI) + prompt →
-/// a new image as a `data:` URI. Backs the decompose "AI turnaround" export,
-/// which needs a clean per-view render of each decomposed object.
+/// Backwards-compat: the first available engine id, or None.
+pub(crate) fn image_edit_provider() -> Option<String> {
+    image_edit_engines()
+        .first()
+        .and_then(|e| e.get("id").and_then(Value::as_str).map(str::to_string))
+}
+
+/// One image-to-image call for a chosen engine: one or more reference images
+/// (`data:` URIs) + prompt → a new image as a `data:` URI. `refs[0]` is the main
+/// subject; extra refs (e.g. an already-rendered front view) help the model keep
+/// identity across a turnaround. `engine` is an id from `image_edit_engines()`;
+/// `""`/unknown falls back to the first available.
 pub(crate) async fn edit_subject_image(
+    engine: &str,
     prompt: &str,
-    subject_data_uri: &str,
+    refs: &[&str],
 ) -> Result<String, String> {
-    match image_edit_provider() {
-        Some("gemini") => {
+    let subject = *refs.first().ok_or("edit_subject_image: no reference image")?;
+    let engine = if engine.is_empty() {
+        image_edit_provider().ok_or(
+            "AI turnaround needs a Gemini, fal, or OpenAI API key — add one in Settings.",
+        )?
+    } else {
+        engine.to_string()
+    };
+
+    if let Some(model) = engine.strip_prefix("fal:") {
+        return fal_edit_image(model, prompt, refs, &provider_key("fal")?).await;
+    }
+    match engine.as_str() {
+        "gemini" => {
             let key = provider_key("gemini")?;
             let src = serde_json::json!({
                 "prompt": prompt,
-                "image_url": subject_data_uri,
+                "reference_image_urls": refs,
                 "aspect_ratio": "1:1",
             });
             gemini_generate_image("gemini-3.1-flash-image", &src, &key).await
         }
-        Some("openai") => {
+        "openai" => {
+            // gpt-image-2 edits take a single source image.
             let key = provider_key("openai")?;
-            let (mime, b64) = subject_data_uri
+            let (mime, b64) = subject
                 .strip_prefix("data:")
                 .and_then(|rest| rest.split_once(";base64,"))
                 .ok_or("Malformed subject image data URI")?;
@@ -507,8 +557,79 @@ pub(crate) async fn edit_subject_image(
                 .map_err(|e| format!("Could not decode the subject image: {e}"))?;
             openai_edit_image(prompt, "1:1", mime, bytes, &key).await
         }
-        _ => Err("AI turnaround needs a Gemini or OpenAI API key — add one in Settings.".into()),
+        other => Err(format!("Unknown AI turnaround engine '{other}'")),
     }
+}
+
+/// Submit a single-image edit to fal's queue, poll to completion, and return the
+/// result as a `data:` URI. Bounded so one stuck view can't hang the whole pack.
+async fn fal_edit_image(
+    model: &str,
+    prompt: &str,
+    refs: &[&str],
+    key: &str,
+) -> Result<String, String> {
+    let body = serde_json::json!({
+        "prompt": prompt,
+        "image_urls": refs,
+        "num_images": 1,
+    });
+    let submitted = fal_request(
+        reqwest::Method::POST,
+        format!("https://queue.fal.run/{model}"),
+        key,
+        Some(&body),
+    )
+    .await?;
+    // Small models often complete inline.
+    let mut result = submitted.clone();
+    if let Some(status_url) = submitted.get("status_url").and_then(Value::as_str) {
+        let response_url = submitted
+            .get("response_url")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let started = std::time::Instant::now();
+        loop {
+            if started.elapsed() > std::time::Duration::from_secs(180) {
+                return Err("fal edit timed out".into());
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let st = fal_request(reqwest::Method::GET, status_url.to_string(), key, None).await?;
+            match st.get("status").and_then(Value::as_str).unwrap_or("") {
+                "COMPLETED" => {
+                    let url = response_url
+                        .clone()
+                        .unwrap_or_else(|| status_url.replace("/status", ""));
+                    result = fal_request(reqwest::Method::GET, url, key, None).await?;
+                    break;
+                }
+                "IN_QUEUE" | "IN_PROGRESS" => continue,
+                bad => return Err(format!("fal edit ended as {bad}")),
+            }
+        }
+    }
+
+    let img_url = result
+        .pointer("/images/0/url")
+        .or_else(|| result.pointer("/image/url"))
+        .and_then(Value::as_str)
+        .ok_or("fal returned no image URL")?;
+    if let Some(rest) = img_url.strip_prefix("data:") {
+        let _ = rest;
+        return Ok(img_url.to_string());
+    }
+    let bytes = provider_http_client()?
+        .get(img_url)
+        .send()
+        .await
+        .map_err(|e| format!("Could not fetch fal result: {e}"))?
+        .bytes()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    ))
 }
 
 /// Maps our generic "W:H" aspect ratio string to a provider's actual pixel size format

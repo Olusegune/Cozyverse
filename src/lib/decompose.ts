@@ -150,19 +150,23 @@ export async function exportDecomposePack(
   dirName: string,
   jobId: string,
   aiViews = false,
+  engine?: string,
 ): Promise<string | null> {
   return invoke<string | null>("decompose_export_pack", {
     dirName,
     jobId,
-    options: aiViews ? { aiViews: true } : null,
+    options: aiViews ? { aiViews: true, engine: engine ?? null } : null,
   });
 }
+
+export type TurnaroundEngine = { id: string; label: string; note: string };
 
 export type ExportPackEstimate = {
   objects: number;
   imagesPerObject: number;
   totalImages: number;
   provider: string | null;
+  engines: TurnaroundEngine[];
 };
 
 /** How many paid image generations the AI turnaround pack would make, + which

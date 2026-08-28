@@ -1253,16 +1253,28 @@ const PACK_VIEWS: [(&str, &str); 5] = [
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportPackOptions {
-    /// Regenerate all five views per object with an image model (Gemini / OpenAI,
-    /// **paid**) instead of shipping the local cutout + Zero123++ tiles. Gives
-    /// large, clean, consistent renders on a plain background — but the side and
-    /// back views are inferred, not observed.
+    /// Regenerate all five views per object with an image model (**paid**)
+    /// instead of shipping the local cutout + Zero123++ tiles. Large, clean
+    /// renders on a plain background — but the side and back views are inferred,
+    /// not observed.
     #[serde(default)]
     pub ai_views: bool,
+    /// Which image-edit engine to use — an id from `decompose_turnaround_engines`
+    /// (`"gemini"`, `"openai"`, `"fal:fal-ai/…"`). Empty = first available.
+    #[serde(default)]
+    pub engine: Option<String>,
+}
+
+/// The image-edit engines available for the AI turnaround pack (keyed providers
+/// only), in default-preference order.
+#[tauri::command]
+pub fn decompose_turnaround_engines() -> Vec<Value> {
+    crate::providers::image_edit_engines()
 }
 
 /// How many paid image generations `decompose_export_pack` with `aiViews` would
-/// make for a job, and which provider — so the UI can warn before spending.
+/// make for a job, plus the available engines — so the UI can warn before
+/// spending and offer the picker.
 #[tauri::command]
 pub fn decompose_export_pack_estimate(
     app: AppHandle,
@@ -1280,6 +1292,7 @@ pub fn decompose_export_pack_estimate(
         "imagesPerObject": PACK_VIEWS.len(),
         "totalImages": job.assets.len() * PACK_VIEWS.len(),
         "provider": crate::providers::image_edit_provider(),
+        "engines": crate::providers::image_edit_engines(),
     }))
 }
 
@@ -1298,7 +1311,9 @@ pub async fn decompose_export_pack(
     job_id: String,
     options: Option<ExportPackOptions>,
 ) -> Result<Option<String>, String> {
-    let ai_views = options.unwrap_or_default().ai_views;
+    let opts = options.unwrap_or_default();
+    let ai_views = opts.ai_views;
+    let engine = opts.engine.unwrap_or_default();
     let project_dir = crate::project_path(&app, &dir_name)?;
     let job = load_state(&project_dir)
         .jobs
@@ -1309,7 +1324,10 @@ pub async fn decompose_export_pack(
         return Err("This job has no decomposed images.".into());
     }
     if ai_views && crate::providers::image_edit_provider().is_none() {
-        return Err("The AI turnaround pack needs a Gemini or OpenAI API key — add one in Settings.".into());
+        return Err(
+            "The AI turnaround pack needs a Gemini, fal, or OpenAI API key — add one in Settings."
+                .into(),
+        );
     }
 
     let assets_root = project_dir.join("assets");
@@ -1380,6 +1398,9 @@ pub async fn decompose_export_pack(
                     continue;
                 }
             };
+            // "front" is rendered early and then handed to the back/side calls as
+            // a second reference so the engine keeps identity across the sheet.
+            let mut front_uri: Option<String> = None;
             for (slug_name, angle) in PACK_VIEWS {
                 let _ = app.emit(
                     EXPORT_EVENT,
@@ -1389,25 +1410,36 @@ pub async fn decompose_export_pack(
                     }),
                 );
                 let prompt = format!(
-                    "Studio product render of the {class} shown in the reference image — {angle}. \
-                     The subject is centred and fully in frame on a plain, seamless pure-white \
-                     background, soft even lighting, no cast shadow, no other objects, no text or \
-                     watermark. Preserve the exact colours, materials, proportions and details of \
-                     the reference. Square image.",
+                    "Consistent product turnaround sheet of one single {class}. Render {angle}. \
+                     Identical object to the reference image(s) — exact same colours, materials, \
+                     shape, proportions and every detail. Centred, fully in frame, plain seamless \
+                     pure-white background, soft even studio lighting, no cast shadow, no other \
+                     objects, no text or watermark. Square image.",
                     class = a.class,
                 );
-                match crate::providers::edit_subject_image(&prompt, &subject).await {
-                    Ok(data_uri) => match data_uri
-                        .split_once(";base64,")
-                        .and_then(|(_, b)| base64::engine::general_purpose::STANDARD.decode(b).ok())
-                    {
-                        Some(bytes) => {
-                            add_bytes(&mut zip, &format!("{folder}/{slug_name}.png"), &bytes)?;
-                            files.insert(slug_name.into(), json!(format!("{slug_name}.png")));
-                            added += 1;
+                let refs: Vec<&str> = match (slug_name, front_uri.as_deref()) {
+                    ("back" | "left" | "right", Some(front)) => vec![subject.as_str(), front],
+                    _ => vec![subject.as_str()],
+                };
+                match crate::providers::edit_subject_image(&engine, &prompt, &refs).await {
+                    Ok(data_uri) => {
+                        if slug_name == "front" {
+                            front_uri = Some(data_uri.clone());
                         }
-                        None => eprintln!("decompose export: {} {slug_name}: unreadable image data", a.id),
-                    },
+                        match data_uri
+                            .split_once(";base64,")
+                            .and_then(|(_, b)| base64::engine::general_purpose::STANDARD.decode(b).ok())
+                        {
+                            Some(bytes) => {
+                                add_bytes(&mut zip, &format!("{folder}/{slug_name}.png"), &bytes)?;
+                                files.insert(slug_name.into(), json!(format!("{slug_name}.png")));
+                                added += 1;
+                            }
+                            None => {
+                                eprintln!("decompose export: {} {slug_name}: unreadable image data", a.id)
+                            }
+                        }
+                    }
                     Err(e) => eprintln!("decompose export: {} {slug_name} failed: {e}", a.id),
                 }
                 done_ai += 1;

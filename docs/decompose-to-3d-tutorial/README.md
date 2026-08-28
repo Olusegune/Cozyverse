@@ -104,13 +104,24 @@ manifest.json                        object list + bounding boxes
 ```
 
 **AI turnaround · ~N imgs (paid)** — re‑renders **all five** views per object
-(perspective + front/back/left/right) through an image model (**Gemini**
-nano‑banana, or **OpenAI** gpt‑image‑2 — whichever key you have) as large, clean
-images on a plain white background. `perspective`/`front` track the object
-closely; `back`/`left`/`right` are *inferred* from the front and won't match
-perfectly. The button shows the image count up front; a progress bar runs while
-it works. Set `COZY_DECOMPOSE_BG` to a hex (e.g. `ECEAE6`) for a neutral‑grey
-background instead of white.
+(perspective + front/back/left/right) as large, clean images on plain white.
+Choose the engine in the dropdown next to the button — whichever provider keys
+you hold:
+
+| Engine | id | notes |
+|---|---|---|
+| Gemini · Nano Banana | `gemini` | best identity match, cheapest |
+| fal · Nano Banana (edit) | `fal:fal-ai/nano-banana/edit` | same model, fal infra |
+| fal · FLUX.1 Kontext [pro] | `fal:fal-ai/flux-pro/kontext` | sharpest edits, higher cost |
+| fal · Seedream 4.0 (edit) | `fal:fal-ai/bytedance/seedream/v4/edit` | strong on product shots |
+| OpenAI · gpt‑image‑2 | `openai` | reliable, pricier |
+
+`perspective` and `front` are rendered from the object cutout; the finished
+`front` is then passed as a second reference to the `back`/`left`/`right` calls
+so identity holds better across the sheet — but those angles are still
+*inferred*, not observed, and won't be a perfect turnaround. The button shows
+the image count up front; a progress bar runs while it works. `COZY_DECOMPOSE_BG`
+(hex, e.g. `ECEAE6`) switches the free pack to a neutral‑grey background.
 
 Either way, nothing is sent to Tripo/Meshy and no 3D credits are used.
 
