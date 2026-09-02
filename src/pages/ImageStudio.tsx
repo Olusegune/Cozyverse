@@ -6,7 +6,7 @@ import { connectedModelsFor, connectedProviders } from "../lib/providers/realGen
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 import { Lightbox } from "../components/Lightbox";
 import { PromptAssist } from "../components/PromptAssist";
-import { emptyWorldBible, type Asset } from "../types";
+import { emptyWorldBible, projectCharacters, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
 import {
   activeStackCount,
@@ -70,6 +70,7 @@ export function ImageStudioPage() {
   const [modelOverrideId, setModelOverrideId] = useState("");
   const [connectedModels, setConnectedModels] = useState<RegisteredModel[]>([]);
   const [shotReferenceIds, setShotReferenceIds] = useState<string[]>([]);
+  const [shotCharacterIds, setShotCharacterIds] = useState<string[]>([]);
 
   useEffect(() => {
     void connectedProviders().then((set) => setHasConnectedProvider(set.size > 0));
@@ -84,6 +85,7 @@ export function ImageStudioPage() {
   const shotModel = connectedModels.find((model) => model.id === modelOverrideId);
   useEffect(() => {
     setShotReferenceIds([]);
+    setShotCharacterIds([]);
   }, [modelOverrideId, sourceAssetId]);
 
   const imageAssets = useMemo(() => (project?.assets.filter((asset) => asset.type === "image") || []).slice().reverse(), [project?.assets]);
@@ -98,7 +100,11 @@ export function ImageStudioPage() {
   const handleGenerate = () => {
     if (mode === "shot") {
       if (!sourceAssetId || !shotSubject.trim()) return;
-      const shotControls: ShotControls = { subjectDescription: shotSubject.trim(), framing: shotFraming, customInstruction: shotInstruction, aspectRatio: shotAspectRatio };
+      const characterFragments = projectCharacters(project)
+        .filter((character) => shotCharacterIds.includes(character.id) && character.styleSheet.trim())
+        .map((character) => `${character.name}: ${character.styleSheet.trim()}`);
+      const customInstruction = [...characterFragments, shotInstruction].filter(Boolean).join(" ");
+      const shotControls: ShotControls = { subjectDescription: shotSubject.trim(), framing: shotFraming, customInstruction, aspectRatio: shotAspectRatio };
       enqueueRender(`Shot: ${shotSubject.trim()}`.slice(0, 60), () => generateShot(sourceAssetId, shotControls, modelOverrideId || undefined, shotReferenceIds));
       return;
     }
@@ -133,6 +139,30 @@ export function ImageStudioPage() {
       if (current.length >= max) return current;
       return [...current, assetId];
     });
+  };
+
+  const characters = projectCharacters(project);
+
+  // Picking a character auto-attaches its first reference image as a real reference input on models
+  // that support one (same slot budget as the manual picker above) — the style sheet text still
+  // folds into the prompt at generate time below even when there's no room left for the image, or
+  // the character has no reference image saved yet, so identity consistency doesn't depend on it.
+  const toggleShotCharacter = (characterId: string) => {
+    const alreadyOn = shotCharacterIds.includes(characterId);
+    setShotCharacterIds((current) => (alreadyOn ? current.filter((id) => id !== characterId) : [...current, characterId]));
+    const character = characters.find((existing) => existing.id === characterId);
+    const referenceId = character?.referenceAssetIds[0];
+    if (!referenceId) return;
+    if (alreadyOn) {
+      setShotReferenceIds((current) => current.filter((id) => id !== referenceId));
+    } else {
+      setShotReferenceIds((current) => {
+        if (current.includes(referenceId)) return current;
+        const max = (shotModel?.supportsReferenceImages ?? 1) - 1;
+        if (current.length >= max) return current;
+        return [...current, referenceId];
+      });
+    }
   };
 
   const handleDelete = async (asset: Asset) => {
@@ -259,6 +289,31 @@ export function ImageStudioPage() {
                       className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
                     />
                   </div>
+                  {characters.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Characters in this Shot</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {characters.map((character) => {
+                          const selected = shotCharacterIds.includes(character.id);
+                          return (
+                            <button
+                              key={character.id}
+                              type="button"
+                              onClick={() => toggleShotCharacter(character.id)}
+                              className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                                selected ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
+                              }`}
+                            >
+                              {character.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1.5">
+                        Auto-attaches each character's reference image (if the model supports one) and folds their style sheet into the prompt either way.
+                      </p>
+                    </div>
+                  )}
                   {Boolean(shotModel?.supportsReferenceImages && shotModel.supportsReferenceImages > 1) && (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">

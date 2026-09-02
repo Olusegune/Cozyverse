@@ -1,9 +1,10 @@
 ﻿import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { BookOpen, Clapperboard, Film, FolderOpen, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo } from "lucide-react";
+import { BookOpen, Clapperboard, Film, FolderOpen, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo, Users } from "lucide-react";
 import { useAppStore } from "./store/useAppStore";
 import { ProjectsDashboard } from "./pages/ProjectsDashboard";
 import { WorldBiblePage } from "./pages/WorldBible";
+import { CharactersPage } from "./pages/Characters";
 import { ImageStudioPage } from "./pages/ImageStudio";
 import { AssetLibraryPage } from "./pages/AssetLibrary";
 import { MotionStudioPage } from "./pages/MotionStudio";
@@ -19,7 +20,7 @@ import { AboutDialog } from "./components/AboutDialog";
 import { HelpDialog } from "./components/HelpDialog";
 import { QueuePanel } from "./components/QueuePanel";
 
-type View = "projects" | "world" | "create" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
+type View = "projects" | "world" | "characters" | "create" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
 
 export function App() {
   const { project, dirName, closeProject, saveNow } = useAppStore();
@@ -57,6 +58,7 @@ export function App() {
   const nav: Array<{ key: View; label: string; icon: React.ElementType; chip: string; iconColor: string }> = [
     { key: "projects", label: "Projects", icon: FolderOpen, chip: "bg-slate-500/20", iconColor: "text-slate-300" },
     { key: "world", label: "World Bible", icon: BookOpen, chip: "bg-violet-500/20", iconColor: "text-violet-400" },
+    { key: "characters", label: "Characters", icon: Users, chip: "bg-pink-500/20", iconColor: "text-pink-400" },
     { key: "create", label: "Image Studio", icon: Wand2, chip: "bg-accent-500/20", iconColor: "text-accent-400" },
     { key: "motion", label: "Motion Studio", icon: Film, chip: "bg-sky-500/20", iconColor: "text-sky-400" },
     { key: "audio", label: "Audio Studio", icon: Volume2, chip: "bg-emerald-500/20", iconColor: "text-emerald-400" },
@@ -133,6 +135,8 @@ export function App() {
           <SettingsPage />
         ) : view === "projects" || !project ? (
           <ProjectsDashboard onOpened={() => setView("world")} />
+        ) : view === "characters" ? (
+          <CharactersPage />
         ) : view === "create" ? (
           <ImageStudioPage />
         ) : view === "motion" ? (

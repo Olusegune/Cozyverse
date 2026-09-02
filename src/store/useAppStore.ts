@@ -7,7 +7,7 @@ import { modelById } from "../lib/providers/modelRegistry";
 import { buildExportManifest, validateForExport } from "../lib/exportFormat";
 import { assignVoices, parseDialogueScript } from "../lib/dialogueScript";
 import { emptyScene } from "../types";
-import type { Asset, AssetType, CozyverseProject, CozyverseSummary, GenerationJob, Scene, TimelineShot, WorldBible } from "../types";
+import type { Asset, AssetType, Character, CozyverseProject, CozyverseSummary, GenerationJob, Scene, TimelineShot, WorldBible } from "../types";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -98,6 +98,10 @@ type AppState = {
   removeScene: (sceneId: string) => Promise<void>;
   updateScene: (sceneId: string, patch: Partial<Scene>) => Promise<void>;
   setSceneControlValue: (sceneId: string, controlId: string, value: number | boolean | string) => Promise<void>;
+  addCharacter: (name: string) => Promise<void>;
+  removeCharacter: (characterId: string) => Promise<void>;
+  updateCharacter: (characterId: string, patch: Partial<Character>) => Promise<void>;
+  toggleCharacterReference: (characterId: string, assetId: string) => Promise<void>;
 
   addTimelineShot: (sceneId: string) => Promise<void>;
   removeTimelineShot: (shotId: string) => Promise<void>;
@@ -1157,6 +1161,49 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...project,
       scenes: project.scenes.map((scene) =>
         scene.id === sceneId ? { ...scene, controls: scene.controls.map((control) => (control.id === controlId ? { ...control, value } : control)) } : scene,
+      ),
+    };
+    set({ project: nextProject });
+    await api.saveCozyverseJson(dirName, nextProject);
+  },
+
+  addCharacter: async (name: string) => {
+    const { project, dirName } = get();
+    if (!project || !dirName) return;
+    const character: Character = { id: crypto.randomUUID(), name: name.trim() || "New Character", styleSheet: "", referenceAssetIds: [], createdAt: new Date().toISOString() };
+    const nextProject: CozyverseProject = { ...project, characters: [...(project.characters ?? []), character] };
+    set({ project: nextProject });
+    await api.saveCozyverseJson(dirName, nextProject);
+  },
+
+  removeCharacter: async (characterId: string) => {
+    const { project, dirName } = get();
+    if (!project || !dirName) return;
+    const nextProject: CozyverseProject = { ...project, characters: (project.characters ?? []).filter((character) => character.id !== characterId) };
+    set({ project: nextProject });
+    await api.saveCozyverseJson(dirName, nextProject);
+  },
+
+  updateCharacter: async (characterId: string, patch: Partial<Character>) => {
+    const { project, dirName } = get();
+    if (!project || !dirName) return;
+    const nextProject: CozyverseProject = {
+      ...project,
+      characters: (project.characters ?? []).map((character) => (character.id === characterId ? { ...character, ...patch } : character)),
+    };
+    set({ project: nextProject });
+    await api.saveCozyverseJson(dirName, nextProject);
+  },
+
+  toggleCharacterReference: async (characterId: string, assetId: string) => {
+    const { project, dirName } = get();
+    if (!project || !dirName) return;
+    const nextProject: CozyverseProject = {
+      ...project,
+      characters: (project.characters ?? []).map((character) =>
+        character.id === characterId
+          ? { ...character, referenceAssetIds: character.referenceAssetIds.includes(assetId) ? character.referenceAssetIds.filter((id) => id !== assetId) : [...character.referenceAssetIds, assetId] }
+          : character,
       ),
     };
     set({ project: nextProject });

@@ -3,7 +3,7 @@ import { Loader2, Sparkles, X } from "lucide-react";
 import * as api from "../lib/api";
 import { buildAssistSystemPrompt, parseAssistVariants, type PromptAssistKind } from "../lib/promptAssist";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
-import type { Scene, WorldBible } from "../types";
+import type { Character, Scene, WorldBible } from "../types";
 
 /** A small "✨ Assist" trigger + popover panel: the user describes a loose concept, a local Ollama
  * model (configured in Settings) writes a few prompt drafts grounded in the project's World Bible
@@ -14,12 +14,14 @@ export function PromptAssist({
   worldBible,
   scene,
   model,
+  shotCharacters,
   onUse,
 }: {
   kind: PromptAssistKind;
   worldBible?: WorldBible;
   scene?: Scene;
   model?: RegisteredModel;
+  shotCharacters?: Character[];
   onUse: (prompt: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -39,7 +41,7 @@ export function PromptAssist({
         setError("No Ollama model is set up yet — add one in Settings → Prompt Assistant.");
         return;
       }
-      const system = buildAssistSystemPrompt(kind, worldBible, scene, model);
+      const system = buildAssistSystemPrompt(kind, worldBible, scene, model, shotCharacters);
       const raw = await api.ollamaGenerate(settings.serverUrl, settings.model, system, idea.trim());
       const parsed = parseAssistVariants(raw);
       if (parsed.length === 0) {

@@ -97,6 +97,19 @@ export type CozyverseMetadata = {
   updatedAt: string;
 };
 
+/** A reusable named character — a "style sheet" (appearance, wardrobe, personality, anything that
+ * needs to stay consistent) plus reference images that ARE this character. Picking a character into
+ * a shot (Image/Motion Studio Shot Mode) auto-attaches its reference image as a real reference input
+ * on models that support one, and folds the style sheet text into the prompt for every model either
+ * way — so consistency doesn't depend on the user re-typing the same description every time. */
+export type Character = {
+  id: string;
+  name: string;
+  styleSheet: string;
+  referenceAssetIds: string[];
+  createdAt: string;
+};
+
 /** In-memory shape of a fully loaded Cozyverse project. */
 export type CozyverseProject = {
   metadata: CozyverseMetadata;
@@ -105,6 +118,9 @@ export type CozyverseProject = {
   generations: GenerationJob[];
   scenes: Scene[];
   timeline: TimelineShot[];
+  /** Optional for backward compatibility with projects saved before this field existed — always
+   * read through the projectCharacters() helper below, never this field directly. */
+  characters?: Character[];
 };
 
 export type CozyverseSummary = {
@@ -159,5 +175,10 @@ export const emptyProject = (name: string): CozyverseProject => {
     generations: [],
     scenes: [],
     timeline: [],
+    characters: [],
   };
 };
+
+/** Safe accessor for project.characters — always use this instead of reading the field directly,
+ * since it's optional for backward compatibility with projects saved before Characters existed. */
+export const projectCharacters = (project: CozyverseProject): Character[] => project.characters ?? [];

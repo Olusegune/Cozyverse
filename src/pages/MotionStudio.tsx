@@ -6,6 +6,7 @@ import { Slider } from "../components/Slider";
 import { PromptAssist } from "../components/PromptAssist";
 import * as api from "../lib/api";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
+import { projectCharacters } from "../types";
 
 export function MotionStudioPage() {
   const project = useAppStore((state) => state.project);
@@ -39,6 +40,7 @@ export function MotionStudioPage() {
   const [shotStartId, setShotStartId] = useState("");
   const [shotEndId, setShotEndId] = useState("");
   const [shotReferenceIds, setShotReferenceIds] = useState<string[]>([]);
+  const [shotCharacterIds, setShotCharacterIds] = useState<string[]>([]);
   const [shotReferenceVideoId, setShotReferenceVideoId] = useState("");
   const [shotReferenceAudioIds, setShotReferenceAudioIds] = useState<string[]>([]);
   const [shotAspectRatio, setShotAspectRatio] = useState("");
@@ -78,7 +80,7 @@ export function MotionStudioPage() {
     setShotDuration(Math.min(5, shotModel.maxDurationSeconds ?? 5));
     if (!shotModel.requiresStartFrame) setShotStartId("");
     if (!shotModel.supportsEndFrame) setShotEndId("");
-    if (!shotModel.supportsReferenceImages) setShotReferenceIds([]);
+    if (!shotModel.supportsReferenceImages) { setShotReferenceIds([]); setShotCharacterIds([]); }
     if (!shotModel.supportsReferenceVideo) setShotReferenceVideoId("");
     if (!shotModel.supportsReferenceAudio) setShotReferenceAudioIds([]);
   }, [shotModelId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -132,12 +134,39 @@ export function MotionStudioPage() {
     });
   };
 
+  const characters = project ? projectCharacters(project) : [];
+
+  // Same pattern as Image Studio's Shot Mode: picking a character auto-attaches its first reference
+  // image (respecting this model's own reference-image slot budget) and its style sheet always folds
+  // into the prompt at generate time below, regardless of whether the image could be attached too.
+  const toggleShotCharacter = (characterId: string) => {
+    const alreadyOn = shotCharacterIds.includes(characterId);
+    setShotCharacterIds((current) => (alreadyOn ? current.filter((id) => id !== characterId) : [...current, characterId]));
+    const character = characters.find((existing) => existing.id === characterId);
+    const referenceId = character?.referenceAssetIds[0];
+    if (!referenceId) return;
+    if (alreadyOn) {
+      setShotReferenceIds((current) => current.filter((id) => id !== referenceId));
+    } else {
+      setShotReferenceIds((current) => {
+        if (current.includes(referenceId)) return current;
+        const max = shotModel?.supportsReferenceImages ?? 0;
+        if (current.length >= max) return current;
+        return [...current, referenceId];
+      });
+    }
+  };
+
   const handleGenerateShot = () => {
     if (!shotModel || !shotPrompt.trim()) return;
     if (shotModel.requiresStartFrame && !shotStartId) return;
+    const characterFragments = characters
+      .filter((character) => shotCharacterIds.includes(character.id) && character.styleSheet.trim())
+      .map((character) => `${character.name}: ${character.styleSheet.trim()}`);
+    const prompt = [...characterFragments, shotPrompt].filter(Boolean).join(" ");
     enqueueRender(`Shot: ${shotPrompt}`.slice(0, 60), () =>
       generateVideoShot({
-        prompt: shotPrompt,
+        prompt,
         modelId: shotModel.id,
         startAssetId: shotStartId || undefined,
         endAssetId: shotEndId || undefined,
@@ -242,6 +271,7 @@ export function MotionStudioPage() {
                     worldBible={project?.worldBible}
                     scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
                     model={shotModel}
+                    shotCharacters={characters.filter((character) => shotCharacterIds.includes(character.id))}
                     onUse={setShotPrompt}
                   />
                 </div>
@@ -279,6 +309,32 @@ export function MotionStudioPage() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {characters.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Characters in this Shot</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {characters.map((character) => {
+                        const selected = shotCharacterIds.includes(character.id);
+                        return (
+                          <button
+                            key={character.id}
+                            type="button"
+                            onClick={() => toggleShotCharacter(character.id)}
+                            className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                              selected ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
+                            }`}
+                          >
+                            {character.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1.5">
+                      Auto-attaches each character's reference image (if this model supports one) and folds their style sheet into the prompt either way.
+                    </p>
                   </div>
                 )}
 

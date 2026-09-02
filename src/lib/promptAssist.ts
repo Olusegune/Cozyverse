@@ -1,5 +1,5 @@
 import type { RegisteredModel } from "./providers/modelRegistry";
-import type { Scene, WorldBible } from "../types";
+import type { Character, Scene, WorldBible } from "../types";
 
 export type PromptAssistKind = "image" | "video" | "audio" | "ambience" | "sfx";
 
@@ -43,14 +43,27 @@ function modelIdiomNote(model: RegisteredModel | undefined): string {
 /** Builds the system prompt for one Ollama call — bakes in World Bible style/tone/characters, the
  * active scene's environmental state, and the target model's own prompting idiom, so suggestions
  * stay continuous with the rest of the project instead of reading as generic stock prompts. */
-export function buildAssistSystemPrompt(kind: PromptAssistKind, worldBible: WorldBible | undefined, scene: Scene | undefined, model: RegisteredModel | undefined): string {
+export function buildAssistSystemPrompt(
+  kind: PromptAssistKind,
+  worldBible: WorldBible | undefined,
+  scene: Scene | undefined,
+  model: RegisteredModel | undefined,
+  shotCharacters: Character[] = [],
+): string {
   const lines: string[] = [
     `You are a prompt-writing assistant inside a creative tool called Cozyverse Studio. The user will describe a rough idea or concept, and you write ${KIND_LABEL[kind]} generation prompts from it.`,
   ];
 
   if (worldBible?.artStyle) lines.push(`Art/visual style to stay consistent with: ${worldBible.artStyle}.`);
   if (worldBible?.mood) lines.push(`Overall mood/tone: ${worldBible.mood}.`);
-  if (worldBible?.characters) lines.push(`Established characters (keep consistent if referenced): ${worldBible.characters}.`);
+  if (shotCharacters.length > 0) {
+    // Structured, per-shot-picked characters take priority over the World Bible's flat characters
+    // blurb — they're what the user actually chose for THIS shot, with a real style sheet.
+    const sheets = shotCharacters.filter((character) => character.styleSheet.trim()).map((character) => `${character.name}: ${character.styleSheet.trim()}`);
+    if (sheets.length > 0) lines.push(`Characters in this shot (keep their described appearance/traits consistent): ${sheets.join(" | ")}.`);
+  } else if (worldBible?.characters) {
+    lines.push(`Established characters (keep consistent if referenced): ${worldBible.characters}.`);
+  }
   if (worldBible?.thingsToAvoid) lines.push(`Avoid: ${worldBible.thingsToAvoid}.`);
   const environment = sceneEnvironment(scene);
   if (environment) lines.push(`Current scene environment: ${environment}.`);
