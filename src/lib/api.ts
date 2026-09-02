@@ -214,6 +214,30 @@ export function localFileUrl(path: string): string {
   return convertFileSrc(path);
 }
 
+// --- Ollama (local prompt assistant) --------------------------------------------------------
+
+export type OllamaSettings = { serverUrl: string; model: string };
+
+export async function ollamaGetSettings(): Promise<OllamaSettings> {
+  return invoke("ollama_get_settings");
+}
+
+export async function ollamaSaveSettings(settings: OllamaSettings): Promise<void> {
+  await invoke("ollama_save_settings", { settings });
+}
+
+export async function ollamaTestConnection(serverUrl: string): Promise<{ reachable: boolean; detail: string }> {
+  return invoke("ollama_test_connection", { serverUrl });
+}
+
+export async function ollamaListModels(serverUrl: string): Promise<string[]> {
+  return invoke("ollama_list_models", { serverUrl });
+}
+
+export async function ollamaGenerate(serverUrl: string, model: string, system: string, prompt: string): Promise<string> {
+  return invoke("ollama_generate", { serverUrl, model, system, prompt });
+}
+
 export type TimelineShotRenderInput = {
   backgroundRelPath?: string;
   motionRelPath?: string;

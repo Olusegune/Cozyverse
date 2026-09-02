@@ -1,3 +1,4 @@
+mod ollama;
 mod providers;
 mod video_export;
 
@@ -580,6 +581,11 @@ pub fn run() {
             providers::save_local_model,
             providers::delete_local_model,
             providers::comfyui_test_connection,
+            ollama::ollama_get_settings,
+            ollama::ollama_save_settings,
+            ollama::ollama_test_connection,
+            ollama::ollama_list_models,
+            ollama::ollama_generate,
             video_export::ffmpeg_available,
             video_export::reveal_in_explorer,
             video_export::save_video_copy,

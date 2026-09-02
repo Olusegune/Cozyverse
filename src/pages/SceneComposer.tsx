@@ -6,10 +6,7 @@ import type { Scene } from "../types";
 import * as api from "../lib/api";
 import { RenderErrorMessage } from "../components/RenderErrorMessage";
 import { Slider } from "../components/Slider";
-
-const TIME_OPTIONS = ["Morning", "Day", "Sunset", "Night"];
-const LIGHTING_OPTIONS = ["Natural", "Warm", "Cool", "Dramatic", "Soft"];
-const WEATHER_OPTIONS = ["Clear", "Rain", "Snow", "Fog", "Overcast", "Storm"];
+import { LIGHTING_OPTIONS, TIME_OPTIONS, WEATHER_OPTIONS } from "../lib/sceneOptions";
 
 export function SceneComposerPage() {
   const project = useAppStore((state) => state.project);

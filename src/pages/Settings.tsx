@@ -2,6 +2,7 @@
 import { CheckCircle2, KeyRound, Loader2, Trash2, XCircle } from "lucide-react";
 import * as api from "../lib/api";
 import { LocalModelsSection } from "../components/LocalModelsSection";
+import { OllamaSection } from "../components/OllamaSection";
 
 type ProviderId = "fal" | "kie" | "wavespeed" | "gemini" | "elevenlabs" | "openai";
 
@@ -155,6 +156,7 @@ export function SettingsPage() {
       </div>
 
       <LocalModelsSection />
+      <OllamaSection />
     </div>
   );
 }

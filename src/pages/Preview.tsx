@@ -3,10 +3,7 @@ import { Maximize, Minimize, Pause, Play, Volume2, VolumeX, X, ChevronUp, Chevro
 import { useAppStore } from "../store/useAppStore";
 import { pickBackgroundForControls } from "../lib/sceneMatching";
 import { Slider } from "../components/Slider";
-
-const TIME_OPTIONS = ["Morning", "Day", "Sunset", "Night"];
-const LIGHTING_OPTIONS = ["Natural", "Warm", "Cool", "Dramatic", "Soft"];
-const WEATHER_OPTIONS = ["Clear", "Rain", "Snow", "Fog", "Overcast", "Storm"];
+import { LIGHTING_OPTIONS, TIME_OPTIONS, WEATHER_OPTIONS } from "../lib/sceneOptions";
 
 export function PreviewPage({ onExit }: { onExit: () => void }) {
   const project = useAppStore((state) => state.project);

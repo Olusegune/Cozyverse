@@ -3,12 +3,14 @@ import { Clapperboard, Download, Film, Sparkles, Trash2, Volume2, Wand2 } from "
 import { useAppStore } from "../store/useAppStore";
 import { connectedModelsFor, connectedProviders, connectedVideoModelsForShotMode } from "../lib/providers/realGeneration";
 import { Slider } from "../components/Slider";
+import { PromptAssist } from "../components/PromptAssist";
 import * as api from "../lib/api";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 
 export function MotionStudioPage() {
   const project = useAppStore((state) => state.project);
   const dirName = useAppStore((state) => state.dirName);
+  const activeSceneId = useAppStore((state) => state.activeSceneId);
   const assetUrl = useAppStore((state) => state.assetUrl);
   const generateMotion = useAppStore((state) => state.generateMotion);
   const generateVideoShot = useAppStore((state) => state.generateVideoShot);
@@ -234,6 +236,13 @@ export function MotionStudioPage() {
                     onChange={(event) => setShotPrompt(event.target.value)}
                     placeholder="Describe the shot — action, camera movement, mood…"
                     className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
+                  />
+                  <PromptAssist
+                    kind="video"
+                    worldBible={project?.worldBible}
+                    scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
+                    model={shotModel}
+                    onUse={setShotPrompt}
                   />
                 </div>
 
@@ -526,6 +535,7 @@ export function MotionStudioPage() {
                 placeholder="e.g. rain falling steadily, slow camera drift across the skyline"
                 className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
               />
+              <PromptAssist kind="video" worldBible={project?.worldBible} scene={project?.scenes.find((scene) => scene.id === activeSceneId)} onUse={setMotionDescription} />
             </div>
 
             <div>

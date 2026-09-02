@@ -5,6 +5,7 @@ import { buildEditInstruction, buildImageIntent, defaultVariantControls, type Im
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 import { Lightbox } from "../components/Lightbox";
+import { PromptAssist } from "../components/PromptAssist";
 import { emptyWorldBible, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
 import {
@@ -20,10 +21,8 @@ import {
   REALISM_PRESETS,
   type StyleStackControls,
 } from "../lib/styleStack";
+import { LIGHTING_OPTIONS, MOOD_PRESETS, TIME_OPTIONS, WEATHER_OPTIONS } from "../lib/sceneOptions";
 
-const WEATHER_OPTIONS = ["Clear", "Rain", "Snow", "Fog", "Overcast", "Storm"];
-const TIME_OPTIONS = ["Morning", "Day", "Sunset", "Night"];
-const LIGHTING_OPTIONS = ["Natural", "Warm", "Cool", "Dramatic", "Soft", "Cinematic", "Noir"];
 const SEASON_OPTIONS = ["Any", "Spring", "Summer", "Autumn", "Winter"];
 const ASPECT_RATIO_OPTIONS = ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"];
 
@@ -41,6 +40,7 @@ const STYLE_STACK_AXES: Array<{ key: keyof StyleStackControls; label: string; pr
 
 export function ImageStudioPage() {
   const project = useAppStore((state) => state.project);
+  const activeSceneId = useAppStore((state) => state.activeSceneId);
   const generateImage = useAppStore((state) => state.generateImage);
   const importImage = useAppStore((state) => state.importImage);
   const setHeroImage = useAppStore((state) => state.setHeroImage);
@@ -349,6 +349,12 @@ export function ImageStudioPage() {
                   </p>
                 )}
                 <p className="text-[11px] text-slate-500 mt-1.5">Weather/Lighting/Style Stack below are ignored while this has text in it — Aspect Ratio still applies, since that's a real generation parameter, not part of the prompt.</p>
+                <PromptAssist
+                  kind="image"
+                  worldBible={project?.worldBible}
+                  scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
+                  onUse={(text) => patchControls({ rawPromptOverride: text })}
+                />
               </div>
             )}
           </div>
@@ -410,8 +416,23 @@ export function ImageStudioPage() {
             <input
               value={controls.mood}
               onChange={(event) => patchControls({ mood: event.target.value })}
+              placeholder="Type your own, or pick a starting point below"
               className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500"
             />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {MOOD_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => patchControls({ mood: preset })}
+                  className={`text-[11px] px-2 py-1 rounded-md border transition ${
+                    controls.mood === preset ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
