@@ -7,6 +7,8 @@ import type { RegisteredModel } from "../lib/providers/modelRegistry";
 import { Lightbox } from "../components/Lightbox";
 import { PromptAssist } from "../components/PromptAssist";
 import { ContinuityCheck } from "../components/ContinuityCheck";
+import { StyleFromPhoto } from "../components/StyleFromPhoto";
+import { PostcardExport } from "../components/PostcardExport";
 import { emptyWorldBible, projectCharacters, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
 import {
@@ -494,6 +496,20 @@ export function ImageStudioPage() {
                     </select>
                   </div>
                 ))}
+
+                <div className="border-t border-base-700 pt-3">
+                  <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">Custom Style (from a photo, or typed)</label>
+                  <textarea
+                    rows={2}
+                    value={controls.styleStack.customStyleDescription}
+                    onChange={(event) => patchStyleStack({ customStyleDescription: event.target.value })}
+                    placeholder="Extract from a photo below, or type your own style description"
+                    className="w-full bg-base-800 border border-base-600 rounded-md px-2.5 py-1.5 text-xs text-white outline-none focus:border-accent-500 resize-none"
+                  />
+                  <div className="mt-1.5">
+                    <StyleFromPhoto onExtracted={(description) => patchStyleStack({ customStyleDescription: description })} />
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -734,6 +750,7 @@ export function ImageStudioPage() {
               >
                 <Download size={13} /> Download
               </button>
+              <PostcardExport imageUrl={assetUrl(lightboxAsset)!} title={project.metadata.name} subtitle={project.worldBible.shortConcept} />
               <button
                 disabled={!hasConnectedProvider || upscalingAssetId === lightboxAsset.id}
                 title={hasConnectedProvider ? undefined : "Add a fal.ai API key in Settings first"}

@@ -1,8 +1,9 @@
 ﻿import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { BookOpen, Clapperboard, Film, FolderOpen, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo, Users } from "lucide-react";
+import { BookOpen, Clapperboard, Film, FolderOpen, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo, Users, Map } from "lucide-react";
 import { useAppStore } from "./store/useAppStore";
 import { ProjectsDashboard } from "./pages/ProjectsDashboard";
+import { WorldMapPage } from "./pages/WorldMap";
 import { WorldBiblePage } from "./pages/WorldBible";
 import { CharactersPage } from "./pages/Characters";
 import { ImageStudioPage } from "./pages/ImageStudio";
@@ -20,10 +21,11 @@ import { AboutDialog } from "./components/AboutDialog";
 import { HelpDialog } from "./components/HelpDialog";
 import { QueuePanel } from "./components/QueuePanel";
 
-type View = "projects" | "world" | "characters" | "create" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
+type View = "projects" | "map" | "world" | "characters" | "create" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
 
 export function App() {
   const { project, dirName, closeProject, saveNow } = useAppStore();
+  const setActiveScene = useAppStore((state) => state.setActiveScene);
   const [view, setView] = useState<View>("projects");
   const [previousView, setPreviousView] = useState<View>("scene");
   const [showSplash, setShowSplash] = useState(true);
@@ -31,7 +33,7 @@ export function App() {
   const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
-    if (dirName) setView("world");
+    if (dirName) setView("map");
   }, [dirName]);
 
   // The native File/Help menu (see build_menu in lib.rs) has no app logic of its own — each item
@@ -57,6 +59,7 @@ export function App() {
   // not one accent tint repeated) rather than every icon sharing the same muted gray/accent color.
   const nav: Array<{ key: View; label: string; icon: React.ElementType; chip: string; iconColor: string }> = [
     { key: "projects", label: "Projects", icon: FolderOpen, chip: "bg-slate-500/20", iconColor: "text-slate-300" },
+    { key: "map", label: "World Map", icon: Map, chip: "bg-amber-500/20", iconColor: "text-amber-400" },
     { key: "world", label: "World Bible", icon: BookOpen, chip: "bg-violet-500/20", iconColor: "text-violet-400" },
     { key: "characters", label: "Characters", icon: Users, chip: "bg-pink-500/20", iconColor: "text-pink-400" },
     { key: "create", label: "Image Studio", icon: Wand2, chip: "bg-accent-500/20", iconColor: "text-accent-400" },
@@ -134,7 +137,14 @@ export function App() {
         {view === "settings" ? (
           <SettingsPage />
         ) : view === "projects" || !project ? (
-          <ProjectsDashboard onOpened={() => setView("world")} />
+          <ProjectsDashboard onOpened={() => setView("map")} />
+        ) : view === "map" ? (
+          <WorldMapPage
+            onOpenScene={(sceneId) => {
+              setActiveScene(sceneId);
+              setView("scene");
+            }}
+          />
         ) : view === "characters" ? (
           <CharactersPage />
         ) : view === "create" ? (

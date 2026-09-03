@@ -173,6 +173,10 @@ export type StyleStackControls = {
   colorPreset: string;
   atmospherePreset: string;
   cameraPreset: string;
+  /** Free-text style fragment, normally filled in by "Extract Style from Photo" (Gemini vision
+   * reverse-engineering a reference image into prompt language) rather than typed by hand — but
+   * left freely editable either way. Composed into the prompt like any other axis. */
+  customStyleDescription: string;
 };
 
 export const defaultStyleStack = (): StyleStackControls => ({
@@ -185,6 +189,7 @@ export const defaultStyleStack = (): StyleStackControls => ({
   colorPreset: "",
   atmospherePreset: "",
   cameraPreset: "",
+  customStyleDescription: "",
 });
 
 const STACK_AXES: Array<{ key: keyof StyleStackControls; presets: StylePreset[] }> = [
@@ -208,10 +213,11 @@ export function composeStyleStackFragments(stack: StyleStackControls): string[] 
     const preset = presets.find((p) => p.value === value);
     if (preset && preset.fragment) fragments.push(preset.fragment);
   }
+  if (stack.customStyleDescription.trim()) fragments.push(stack.customStyleDescription.trim());
   return fragments;
 }
 
 /** How many axes have a non-default selection — used to badge the collapsed Style Stack panel. */
 export function activeStackCount(stack: StyleStackControls): number {
-  return STACK_AXES.reduce((count, { key }) => count + (stack[key] ? 1 : 0), 0);
+  return STACK_AXES.reduce((count, { key }) => count + (stack[key] ? 1 : 0), 0) + (stack.customStyleDescription.trim() ? 1 : 0);
 }

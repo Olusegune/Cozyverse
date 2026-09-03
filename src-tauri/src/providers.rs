@@ -355,6 +355,35 @@ pub async fn gemini_generate_text(prompt: String) -> Result<String, String> {
     Ok(text)
 }
 
+/// Reverse-engineers a Style Stack-style art-direction description from a reference photo — "make
+/// my world look like THIS image" instead of picking descriptive words by hand. Sends the image as
+/// an inline_data part (same multimodal shape gemini_generate_image already uses for reference
+/// images) alongside an instruction asking for a single dense prose paragraph covering material,
+/// color, lighting, and camera language — deliberately prose, not structured fields, since that's
+/// what actually gets pasted into a generation prompt (Raw Prompt Override / a custom style axis),
+/// and avoids betting on an unconfirmed JSON-mode response shape (same caution as
+/// gemini_generate_text above).
+#[tauri::command]
+pub async fn gemini_describe_image_style(image_mime: String, image_base64: String) -> Result<String, String> {
+    let key = provider_key("gemini")?;
+    let instruction = "Describe the visual art style of this image as a single dense, comma-separated prompt fragment suitable for pasting directly into an AI image generation prompt to replicate this exact style on a different subject. Cover: overall art style/medium, material and surface qualities, color palette (name actual colors), lighting quality and direction, camera angle and composition, and any distinctive rendering technique. Do not describe the specific subject matter or content of this image — only the STYLE, so it can be applied to something else entirely. One paragraph, no headers, no bullet points, no preamble like \"Here is a description\" — output only the style description itself.";
+    let body = serde_json::json!({
+        "contents": [{ "parts": [
+            { "text": instruction },
+            { "inline_data": { "mime_type": image_mime, "data": image_base64 } },
+        ] }]
+    });
+    // Uses the plain text model (not the image-generation one) — this call wants text OUT
+    // describing the image IN, the same "multimodal input, text output" shape gemini_generate_text
+    // already uses successfully, just with an added inline_data image part.
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent";
+    let value = gemini_request(url.into(), &key, &body).await?;
+    let parts = value.pointer("/candidates/0/content/parts").and_then(Value::as_array).ok_or_else(|| format!("Gemini did not return a readable style description: {value}"))?;
+    let text: String = parts.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("");
+    if text.trim().is_empty() { return Err(format!("Gemini returned an empty style description: {value}")); }
+    Ok(text.trim().to_owned())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ElevenLabsVoice {
