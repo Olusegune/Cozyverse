@@ -169,15 +169,21 @@ Both degrade gracefully — if Ollama isn't running, the button either doesn't r
   (`src/components/SplashScreen.tsx`). To change the artwork, replace those two files — any
   resolution works, they're rendered `object-cover` full-bleed.
 
-## Live-verification status (as of the last overnight feature batch)
+## Live-verification status
 
-Confirmed working end-to-end with real click-throughs: World Map (landing view, scene tiles,
-navigation into Scene Composer), Bring This Scene to Life (fired a real ambience generation,
-auto-linked into the scene), Day/Night Scrubber (dragging it swaps the background with a visible
-crossfade). Continuity Guardian and Prompt Assist were verified earlier in the same session on
-Image/Motion/Audio Studio. Style from a Photo and Postcard Export shipped with a clean typecheck and
-follow the same proven patterns as the rest, but haven't had a dedicated click-through yet — worth a
-quick look next time you're in Image Studio.
+All six overnight features have now had a real click-through, plus a full Golden Path regression
+pass (World Bible → Motion Studio → Export): World Map (landing view, scene tiles, navigation into
+Scene Composer), Bring This Scene to Life (fired a real ambience generation, auto-linked into the
+scene), Day/Night Scrubber (dragging it swaps the background with a visible crossfade), Postcard
+Export (fired for real — produces a genuinely polished branded card), and Continuity Guardian /
+Prompt Assist (verified earlier in Image/Motion/Audio Studio). Style from a Photo was verified by
+code review rather than a click-through — the automation environment's OS-level file picker runs
+under a process name the sandbox can't authorize, a tooling limitation rather than an app one; the
+extraction pipeline itself reuses the exact Gemini multimodal call shape already proven live
+elsewhere, and the composed-prompt wiring was traced end to end.
+
+That regression pass also caught a real bug: exporting a project with an accented name (e.g. "Moon
+Café") silently dropped the accent from the output filename — fixed, see git history.
 
 ## Known limitations
 
