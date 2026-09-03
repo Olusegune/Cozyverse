@@ -1336,7 +1336,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const manifest = buildExportManifest(project);
       const heroAsset = project.assets.find((asset) => asset.id === project.metadata.heroImageAssetId);
-      const suggestedName = `${project.metadata.name.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "cozyverse"}.zip`;
+      // \p{L}\p{N} (Unicode letter/number, not the ASCII-only a-z0-9) — the plain a-z0-9 version
+      // silently dropped accented characters instead of preserving them (confirmed live: "Moon
+      // Café" exported as "Moon-Caf.zip", the "é" just vanishing rather than being replaced with a
+      // hyphen like every other punctuation character), which given this app's explicitly
+      // international project names (Lagos, Café, ...) is a real filename-mangling bug, not an edge
+      // case.
+      const suggestedName = `${project.metadata.name.trim().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "") || "cozyverse"}.zip`;
       const savedPath = await api.exportCozyverse(dirName, JSON.stringify(manifest, null, 2), heroAsset?.filePath, suggestedName);
       set({ exporting: false, lastExportPath: savedPath, notice: savedPath ? `Exported to ${savedPath}` : null });
     } catch (error) {
