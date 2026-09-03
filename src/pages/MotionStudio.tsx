@@ -4,6 +4,7 @@ import { useAppStore } from "../store/useAppStore";
 import { connectedModelsFor, connectedProviders, connectedVideoModelsForShotMode } from "../lib/providers/realGeneration";
 import { Slider } from "../components/Slider";
 import { PromptAssist } from "../components/PromptAssist";
+import { ContinuityCheck } from "../components/ContinuityCheck";
 import * as api from "../lib/api";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 import { projectCharacters } from "../types";
@@ -335,6 +336,14 @@ export function MotionStudioPage() {
                     <p className="text-[11px] text-slate-500 mt-1.5">
                       Auto-attaches each character's reference image (if this model supports one) and folds their style sheet into the prompt either way.
                     </p>
+                    <div className="mt-2">
+                      <ContinuityCheck
+                        prompt={shotPrompt}
+                        characters={characters.filter((character) => shotCharacterIds.includes(character.id))}
+                        worldBible={project?.worldBible}
+                        onAppend={(addition) => setShotPrompt((current) => [current, addition].filter(Boolean).join(", "))}
+                      />
+                    </div>
                   </div>
                 )}
 

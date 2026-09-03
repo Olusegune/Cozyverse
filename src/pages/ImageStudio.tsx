@@ -6,6 +6,7 @@ import { connectedModelsFor, connectedProviders } from "../lib/providers/realGen
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 import { Lightbox } from "../components/Lightbox";
 import { PromptAssist } from "../components/PromptAssist";
+import { ContinuityCheck } from "../components/ContinuityCheck";
 import { emptyWorldBible, projectCharacters, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
 import {
@@ -313,6 +314,14 @@ export function ImageStudioPage() {
                       <p className="text-[11px] text-slate-500 mt-1.5">
                         Auto-attaches each character's reference image (if the model supports one) and folds their style sheet into the prompt either way.
                       </p>
+                      <div className="mt-2">
+                        <ContinuityCheck
+                          prompt={[shotSubject, shotInstruction].filter(Boolean).join(" — ")}
+                          characters={characters.filter((character) => shotCharacterIds.includes(character.id))}
+                          worldBible={project.worldBible}
+                          onAppend={(addition) => setShotInstruction((current) => [current, addition].filter(Boolean).join(", "))}
+                        />
+                      </div>
                     </div>
                   )}
                   {Boolean(shotModel?.supportsReferenceImages && shotModel.supportsReferenceImages > 1) && (
