@@ -82,8 +82,26 @@ export function buildImageIntent(bible: WorldBible, controls: ImageVariantContro
     bible.characters && `Characters: ${bible.characters}.`,
   ].filter(Boolean);
 
+  // Style Stack fragments used to be appended at the very end of the prompt, after mood, weather,
+  // lighting, and custom instructions — diffusion/edit models weight earlier tokens more heavily,
+  // so a strong art-direction fragment like "isometric miniature diorama" landing last got diluted
+  // by everything ahead of it. Moving it to merely lead directionParts (right after subjectParts)
+  // still wasn't enough — confirmed live: a long World Bible description ahead of it as the
+  // prompt's opening sentences still dominated the framing, and the generation came back as a
+  // normal ground-level illustration/photo, not a diorama. The camera/composition instruction is
+  // the strongest visual-framing signal a prompt can carry, so it now leads the ENTIRE prompt —
+  // ahead of the subject description, not just ahead of mood/weather/lighting — matching the
+  // "style first, subject second" ordering diffusion models respond to best. Per the Style Stack's
+  // own documented behavior ("leave at None to fall back to the World Bible's own art style"), a
+  // chosen Art Style axis also fully replaces bible.artStyle rather than both competing for
+  // attention in the same prompt.
+  const styleFragments = composeStyleStackFragments(controls.styleStack);
+  const hasStyleStackArtStyle = Boolean(controls.styleStack.artStyle);
+  const artStyleLine = hasStyleStackArtStyle
+    ? `Art style: ${styleFragments.join(", ")}.`
+    : [`Art style: ${bible.artStyle || "cinematic illustration"}.`, styleFragments.length > 0 && `${styleFragments.join(", ")}.`].filter(Boolean).join(" ");
+
   const directionParts = [
-    `Art style: ${bible.artStyle || "cinematic illustration"}.`,
     `Mood: ${controls.mood}.`,
     `Weather: ${controls.weather}.`,
     `Time of day: ${controls.timeOfDay}.`,
@@ -93,8 +111,7 @@ export function buildImageIntent(bible: WorldBible, controls: ImageVariantContro
     controls.customInstruction && controls.customInstruction,
   ].filter(Boolean);
 
-  const styleFragments = composeStyleStackFragments(controls.styleStack);
-  const prompt = [...subjectParts, ...directionParts, ...styleFragments].join(" ");
+  const prompt = [artStyleLine, ...subjectParts, ...directionParts].join(" ");
   const negativePrompt = bible.thingsToAvoid || "";
 
   return {

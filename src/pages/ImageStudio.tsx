@@ -61,6 +61,7 @@ export function ImageStudioPage() {
   const [hasConnectedProvider, setHasConnectedProvider] = useState(false);
   const [lightboxAsset, setLightboxAsset] = useState<Asset | null>(null);
   const [styleStackOpen, setStyleStackOpen] = useState(false);
+  const [sceneConditionsOpen, setSceneConditionsOpen] = useState(false);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
   const [rawPromptEnabled, setRawPromptEnabled] = useState(false);
   const [shotSubject, setShotSubject] = useState("");
@@ -421,10 +422,32 @@ export function ImageStudioPage() {
 
           {mode !== "shot" && (
           <div className={rawPromptEnabled && controls.rawPromptOverride.trim() ? "space-y-4 opacity-40 pointer-events-none" : "space-y-4"}>
-          <Field label="Weather" value={controls.weather} options={WEATHER_OPTIONS} onChange={(value) => patchControls({ weather: value })} />
-          <Field label="Time of Day" value={controls.timeOfDay} options={TIME_OPTIONS} onChange={(value) => patchControls({ timeOfDay: value })} />
-          <Field label="Lighting" value={controls.lighting} options={LIGHTING_OPTIONS} onChange={(value) => patchControls({ lighting: value })} />
-          <Field label="Season" value={controls.season} options={SEASON_OPTIONS} onChange={(value) => patchControls({ season: value })} />
+          <div className="rounded-lg border border-base-700 overflow-hidden">
+            <button
+              onClick={() => setSceneConditionsOpen((open) => !open)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-400 hover:text-white transition"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="shrink-0">Scene Conditions</span>
+                {/* These values can be long free-text (a World Bible field isn't limited to the
+                    dropdown's short option words) — truncate hard so the collapsed header always
+                    stays one line instead of ballooning into a wall of text. */}
+                <span className="normal-case tracking-normal text-slate-500 font-normal truncate">
+                  {controls.weather} · {controls.timeOfDay} · {controls.lighting}
+                  {controls.season !== "Any" ? ` · ${controls.season}` : ""}
+                </span>
+              </span>
+              <ChevronDown size={14} className={`shrink-0 transition-transform ${sceneConditionsOpen ? "rotate-180" : ""}`} />
+            </button>
+            {sceneConditionsOpen && (
+              <div className="px-3 pb-3 space-y-3 border-t border-base-700 pt-3">
+                <Field label="Weather" value={controls.weather} options={WEATHER_OPTIONS} onChange={(value) => patchControls({ weather: value })} />
+                <Field label="Time of Day" value={controls.timeOfDay} options={TIME_OPTIONS} onChange={(value) => patchControls({ timeOfDay: value })} />
+                <Field label="Lighting" value={controls.lighting} options={LIGHTING_OPTIONS} onChange={(value) => patchControls({ lighting: value })} />
+                <Field label="Season" value={controls.season} options={SEASON_OPTIONS} onChange={(value) => patchControls({ season: value })} />
+              </div>
+            )}
+          </div>
 
           <div className="rounded-lg border border-base-700 overflow-hidden">
             <button

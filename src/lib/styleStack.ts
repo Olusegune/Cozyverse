@@ -9,9 +9,20 @@ export type StylePreset = { value: string; label: string; fragment: string };
 
 const NONE: StylePreset = { value: "", label: "None", fragment: "" };
 
+// Shared closing clause for every diorama-family Art Style below. A single word like "diorama"
+// sitting inside a longer descriptive sentence isn't enough to actually get a diorama-framed
+// result — confirmed live: a fragment saying "...miniature diorama..." still rendered as a normal
+// full-scale illustration/photo (ground-level camera, no base, no toy-scale cues), because the
+// generation model needs explicit camera/composition instruction, not just a style adjective. The
+// existing "Three-Quarter Diorama" Camera preset already had the right language, but it's a
+// separate dropdown nobody would think to pair with Art Style — so that framing is folded directly
+// into every diorama-family preset's own fragment instead of depending on a second manual pick.
+const DIORAMA_FRAMING =
+  "shown from an elevated isometric three-quarter camera angle, framed as a physical tabletop diorama with a visible base or pedestal edge beneath the scene, shallow tilt-shift depth of field, small toy-like scale";
+
 export const ART_STYLE_PRESETS: StylePreset[] = [
   NONE,
-  { value: "cozy-3d-diorama", label: "Cozy 3D Diorama", fragment: "isometric miniature diorama, soft forms, warm lighting, comforting handcrafted details" },
+  { value: "cozy-3d-diorama", label: "Cozy 3D Diorama", fragment: `isometric miniature diorama, soft forms, warm lighting, comforting handcrafted details, ${DIORAMA_FRAMING}` },
   // Retro Sci-Fi Cozy — same warm miniature-diorama DNA as Cozy 3D Diorama, with mid-century
   // "world's fair" space-age motifs layered on top: domed architecture, portholes, small hovering
   // vehicles, retro neon-tube signage. Deliberately warm and optimistic rather than gritty — kept
@@ -20,17 +31,17 @@ export const ART_STYLE_PRESETS: StylePreset[] = [
     value: "retro-scifi-cozy",
     label: "Retro Sci-Fi Cozy",
     fragment:
-      "retro sci-fi cozy miniature diorama, mid-century space-age retro-futurism, domed rooftops and porthole windows, warm glowing neon-tube signage, small rounded hover vehicles and a distant flying saucer or orbital pod, satellite dishes and antenna details, optimistic 1960s world's-fair charm rather than dystopian sci-fi, tactile matte materials, warm golden practical lighting mixing with cool starlit or neon-lit night sky, clean readable silhouettes",
+      `retro sci-fi cozy miniature diorama, mid-century space-age retro-futurism, domed rooftops and porthole windows, warm glowing neon-tube signage, small rounded hover vehicles and a distant flying saucer or orbital pod, satellite dishes and antenna details, optimistic 1960s world's-fair charm rather than dystopian sci-fi, tactile matte materials, warm golden practical lighting mixing with cool starlit or neon-lit night sky, clean readable silhouettes, ${DIORAMA_FRAMING}`,
   },
-  { value: "cinematic-isometric", label: "Cinematic Isometric", fragment: "cinematic isometric rendering, dramatic light direction, atmospheric depth, film-like color grading" },
-  { value: "miniature-toy", label: "Miniature / Toy-Like", fragment: "collectible-model aesthetic, clean silhouettes, simplified geometry, tactile toy-like surfaces" },
-  { value: "handcrafted-clay", label: "Handcrafted Clay", fragment: "handcrafted clay miniature, rounded sculpted buildings and characters, softly imperfect edges" },
-  { value: "wooden-miniature", label: "Wooden Miniature", fragment: "carved wood miniature, warm wood-grain textures, handcrafted model-set feel" },
-  { value: "paper-craft", label: "Paper Craft / Layered Paper", fragment: "layered paper-craft diorama, folded-paper foliage, cut-paper architecture, visible dimensional layering" },
-  { value: "soft-pastel-3d", label: "Soft Pastel 3D", fragment: "soft pastel 3D rendering, gentle low-contrast palette, creamy dreamy light" },
+  { value: "cinematic-isometric", label: "Cinematic Isometric", fragment: `cinematic isometric rendering, dramatic light direction, atmospheric depth, film-like color grading, ${DIORAMA_FRAMING}` },
+  { value: "miniature-toy", label: "Miniature / Toy-Like", fragment: `collectible-model aesthetic, clean silhouettes, simplified geometry, tactile toy-like surfaces, ${DIORAMA_FRAMING}` },
+  { value: "handcrafted-clay", label: "Handcrafted Clay", fragment: `handcrafted clay miniature, rounded sculpted buildings and characters, softly imperfect edges, ${DIORAMA_FRAMING}` },
+  { value: "wooden-miniature", label: "Wooden Miniature", fragment: `carved wood miniature, warm wood-grain textures, handcrafted model-set feel, ${DIORAMA_FRAMING}` },
+  { value: "paper-craft", label: "Paper Craft / Layered Paper", fragment: `layered paper-craft diorama, folded-paper foliage, cut-paper architecture, visible dimensional layering, ${DIORAMA_FRAMING}` },
+  { value: "soft-pastel-3d", label: "Soft Pastel 3D", fragment: `soft pastel 3D rendering, gentle low-contrast palette, creamy dreamy light, ${DIORAMA_FRAMING}` },
   { value: "anime-soft-3d", label: "Anime-Inspired Soft 3D", fragment: "anime-inspired stylized 3D, expressive soft lighting, romantic skies" },
-  { value: "storybook-3d", label: "Storybook 3D", fragment: "vintage storybook 3D illustration style, whimsical proportions, charming slightly magical color design" },
-  { value: "low-poly-cozy", label: "Low-Poly Cozy", fragment: "low-poly faceted geometry, simplified forms, warm and readable despite the facets" },
+  { value: "storybook-3d", label: "Storybook 3D", fragment: `vintage storybook 3D illustration style, whimsical proportions, charming slightly magical color design, ${DIORAMA_FRAMING}` },
+  { value: "low-poly-cozy", label: "Low-Poly Cozy", fragment: `low-poly faceted geometry, simplified forms, warm and readable despite the facets, ${DIORAMA_FRAMING}` },
   // Broader, non-diorama art styles — for users who want Cozyverse's tools without the miniature/
   // diorama framing baked into every image. Each fragment deliberately omits diorama/miniature
   // language so it reads as a clean, independent visual direction.
