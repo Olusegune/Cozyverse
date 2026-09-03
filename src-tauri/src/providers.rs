@@ -627,8 +627,12 @@ fn fal_shot_video_input(model_id: &str, input: &mut serde_json::Map<String, Valu
             input.remove("image_url");
             input.remove("end_image_url");
             input.remove("generate_audio");
+            // Confirmed via a live 422 from fal's own API: this endpoint's "duration" is a plain
+            // integer (2-10), not the stringified enum some other Shot Mode models want — sending
+            // it as a string ("5") is rejected as a literal_error even though 5 is in the accepted
+            // set, because the type itself is wrong.
             if let Some(seconds) = duration_seconds.and_then(|v| v.as_u64()) {
-                input.insert("duration".into(), Value::String(seconds.to_string()));
+                input.insert("duration".into(), Value::Number(seconds.into()));
             }
         }
         "lightricks/ltx-2.5/image-to-video/pro" => {
@@ -1317,7 +1321,9 @@ mod tests {
         assert!(input.get("image_url").is_none(), "this model has no single start-frame field — only reference arrays");
         assert_eq!(input.get("reference_image_urls"), Some(&json!(["r1", "r2", "r3"])));
         assert_eq!(input.get("reference_video_urls"), Some(&json!(["v1"])));
-        assert_eq!(input.get("duration").and_then(|v| v.as_str()), Some("10"));
+        // Regression test for a live 422: this endpoint wants "duration" as a plain integer, not a
+        // stringified enum — sending "10" (string) was rejected even though 10 is a valid value.
+        assert_eq!(input.get("duration"), Some(&json!(10)), "duration must be a real integer, not a stringified enum, for this endpoint");
     }
 
     #[test]

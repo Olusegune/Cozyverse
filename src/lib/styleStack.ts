@@ -12,6 +12,16 @@ const NONE: StylePreset = { value: "", label: "None", fragment: "" };
 export const ART_STYLE_PRESETS: StylePreset[] = [
   NONE,
   { value: "cozy-3d-diorama", label: "Cozy 3D Diorama", fragment: "isometric miniature diorama, soft forms, warm lighting, comforting handcrafted details" },
+  // Retro Sci-Fi Cozy — same warm miniature-diorama DNA as Cozy 3D Diorama, with mid-century
+  // "world's fair" space-age motifs layered on top: domed architecture, portholes, small hovering
+  // vehicles, retro neon-tube signage. Deliberately warm and optimistic rather than gritty — kept
+  // distinct from Cyberpunk Neon below, which is the moody/dystopian version of a neon night scene.
+  {
+    value: "retro-scifi-cozy",
+    label: "Retro Sci-Fi Cozy",
+    fragment:
+      "retro sci-fi cozy miniature diorama, mid-century space-age retro-futurism, domed rooftops and porthole windows, warm glowing neon-tube signage, small rounded hover vehicles and a distant flying saucer or orbital pod, satellite dishes and antenna details, optimistic 1960s world's-fair charm rather than dystopian sci-fi, tactile matte materials, warm golden practical lighting mixing with cool starlit or neon-lit night sky, clean readable silhouettes",
+  },
   { value: "cinematic-isometric", label: "Cinematic Isometric", fragment: "cinematic isometric rendering, dramatic light direction, atmospheric depth, film-like color grading" },
   { value: "miniature-toy", label: "Miniature / Toy-Like", fragment: "collectible-model aesthetic, clean silhouettes, simplified geometry, tactile toy-like surfaces" },
   { value: "handcrafted-clay", label: "Handcrafted Clay", fragment: "handcrafted clay miniature, rounded sculpted buildings and characters, softly imperfect edges" },
