@@ -10,7 +10,16 @@ Create Project → Define World → Create Master Image → Create Variants →
 Organize Assets → Add Motion → Add Audio → Configure Interactivity → Preview → Export
 ```
 
-Every screen in the app's left nav maps to one step of that path.
+Every screen in the app's left nav maps to one step of that path. **World Map** is the landing view
+after opening a project — every scene as a floating diorama tile (thumbnail resolved the same way
+Scene Composer's Live Preview does, so it's always in sync), with dots showing which of
+motion/ambience/music are filled in, and a "Story Order" strip above it showing the Storyboard
+timeline's actual sequence when one exists. Click a tile to jump into Scene Composer for that scene.
+
+**Characters** (its own nav item) are recurring characters defined once — a name, a free-text style
+sheet (appearance/wardrobe/personality), and reference images — then picked into any Shot Mode
+generation in Image or Motion Studio. Picking a character auto-attaches its reference image (on
+models that support one) and folds its style sheet into the prompt either way.
 
 ## Getting started
 
@@ -85,6 +94,41 @@ Local image conditioning for fal models works by passing a base64 data URI direc
 `image_url`/`image_urls` input — fal's API accepts this in place of a hosted URL, so no separate
 upload step is needed for image-to-image, image-to-video, or edit requests.
 
+## Local AI features (Ollama)
+
+A few features run entirely on a local Ollama model instead of a paid API — no key, no cost, fully
+private. Connect Ollama once in **Settings → Prompt Assistant (Ollama)** (server URL + pick a pulled
+model), then:
+
+- **Prompt Assist** (✨ Assist next to any prompt field in Image/Motion/Audio Studio) — describe an
+  idea in plain language, get back 2–3 ready-to-use prompt drafts grounded in the project's World
+  Bible, active scene conditions, and the target model's own prompting idiom (`src/lib/promptAssist.ts`,
+  `src/components/PromptAssist.tsx`).
+- **Continuity Guardian** ("Check Continuity" next to the Characters picker in Image/Motion Studio
+  Shot Mode) — compares the prompt against selected characters' style sheets and the World Bible's
+  "Things to Avoid" list, flagging contradictions or missing established details with a one-click
+  "Add" fix. Silent (never blocks generation) when Ollama isn't configured
+  (`src/lib/continuityGuardian.ts`, `src/components/ContinuityCheck.tsx`).
+
+Both degrade gracefully — if Ollama isn't running, the button either doesn't render or shows a quiet
+"not set up" hint rather than erroring.
+
+## Other one-click features
+
+- **Bring This Scene to Life** (Scene Composer) — fills in whichever of a scene's motion/ambience/
+  music layers are still empty, in one click, reusing the same generation calls Motion/Audio Studio
+  use on their own (`bringSceneToLife` in `src/store/useAppStore.ts`).
+- **Day/Night Scrubber** (Preview) — Time of Day is a draggable slider, not a dropdown; the
+  background crossfades between whichever generated variant best matches each stop instead of
+  hard-cutting (`CrossfadeBackground` in `src/pages/Preview.tsx`).
+- **Style from a Photo** (Image Studio → Style Stack) — drop in any reference image and Gemini
+  describes just its visual style (material/color/lighting/camera, not the subject) as a ready-to-use
+  Custom Style fragment, instead of hand-picking descriptive words (`src/components/StyleFromPhoto.tsx`;
+  requires a connected Gemini key).
+- **Postcard Export** (Image Studio lightbox) — one-click shareable card of any generated image in
+  the app's own gold-on-dark splash-screen identity (`src/lib/postcard.ts`,
+  `src/components/PostcardExport.tsx`).
+
 ## Architecture
 
 - **Tauri 2** (Rust backend + native webview) — no Electron, no bundled Chromium.
@@ -98,11 +142,21 @@ upload step is needed for image-to-image, image-to-video, or edit requests.
 - **Continuity engine** (`src/lib/continuity.ts`) is the one place prompts get built — it combines
   the World Bible with whatever's being requested (variant controls, motion description, audio
   kind) into a `GenerationIntent`. Providers never see the World Bible directly.
-- **Scene state matching** (`src/lib/sceneMatching.ts`) is how the Scene Composer and Preview swap
-  backgrounds when you drag an environmental control (Weather, Time, Lighting): it scores your
-  *already-generated* image variants against the requested state and picks the best match. Nothing
-  regenerates live during playback — this is deliberate, per the "don't build a game engine" rule
-  the whole project follows.
+- **Scene state matching** (`src/lib/sceneMatching.ts`) is how the Scene Composer, Preview, and World
+  Map swap/resolve backgrounds when you drag an environmental control (Weather, Time, Lighting): it
+  scores your *already-generated* image variants against the requested state and picks the best
+  match. Nothing regenerates live during playback — this is deliberate, per the "don't build a game
+  engine" rule the whole project follows.
+- **Style Stack** (`src/lib/styleStack.ts`) is a set of independent art-direction axes (Art Style,
+  Edge Style, Construction, Material, Realism, Lighting, Color, Atmosphere, Camera) that combine into
+  one prompt fragment. The Art Style axis leads the *entire* generated prompt (ahead of even the
+  World Bible's own subject description) rather than being appended at the end — diffusion models
+  weight earlier tokens more heavily, and a late-appended style fragment gets diluted. Every
+  diorama-family Art Style preset (Cozy 3D Diorama, Retro Sci-Fi Cozy, Miniature/Toy, Handcrafted
+  Clay, etc.) folds explicit camera/composition language (elevated isometric angle, visible base/
+  pedestal, tilt-shift, toy-scale) directly into its own fragment rather than depending on a separate
+  Camera preset nobody would think to pair with it — confirmed live across three iterations that a
+  single word like "diorama" in a longer sentence isn't enough on its own.
 
 ## Splash screen & branding
 
@@ -114,6 +168,16 @@ upload step is needed for image-to-image, image-to-video, or edit requests.
   4.5 seconds, and can be skipped immediately via the **Skip** button top-right
   (`src/components/SplashScreen.tsx`). To change the artwork, replace those two files — any
   resolution works, they're rendered `object-cover` full-bleed.
+
+## Live-verification status (as of the last overnight feature batch)
+
+Confirmed working end-to-end with real click-throughs: World Map (landing view, scene tiles,
+navigation into Scene Composer), Bring This Scene to Life (fired a real ambience generation,
+auto-linked into the scene), Day/Night Scrubber (dragging it swaps the background with a visible
+crossfade). Continuity Guardian and Prompt Assist were verified earlier in the same session on
+Image/Motion/Audio Studio. Style from a Photo and Postcard Export shipped with a clean typecheck and
+follow the same proven patterns as the rest, but haven't had a dedicated click-through yet — worth a
+quick look next time you're in Image Studio.
 
 ## Known limitations
 
