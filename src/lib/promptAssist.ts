@@ -1,5 +1,5 @@
 import type { RegisteredModel } from "./providers/modelRegistry";
-import type { Character, Scene, WorldBible } from "../types";
+import { entityKind, ENTITY_KIND_LABELS, type Character, type Scene, type WorldBible } from "../types";
 
 export type PromptAssistKind = "image" | "video" | "audio" | "ambience" | "sfx";
 
@@ -57,10 +57,12 @@ export function buildAssistSystemPrompt(
   if (worldBible?.artStyle) lines.push(`Art/visual style to stay consistent with: ${worldBible.artStyle}.`);
   if (worldBible?.mood) lines.push(`Overall mood/tone: ${worldBible.mood}.`);
   if (shotCharacters.length > 0) {
-    // Structured, per-shot-picked characters take priority over the World Bible's flat characters
+    // Structured, per-shot-picked cast/props take priority over the World Bible's flat characters
     // blurb — they're what the user actually chose for THIS shot, with a real style sheet.
-    const sheets = shotCharacters.filter((character) => character.styleSheet.trim()).map((character) => `${character.name}: ${character.styleSheet.trim()}`);
-    if (sheets.length > 0) lines.push(`Characters in this shot (keep their described appearance/traits consistent): ${sheets.join(" | ")}.`);
+    const sheets = shotCharacters
+      .filter((character) => character.styleSheet.trim())
+      .map((character) => `${character.name} (${ENTITY_KIND_LABELS[entityKind(character)].toLowerCase()}): ${character.styleSheet.trim()}`);
+    if (sheets.length > 0) lines.push(`Cast and props in this shot (keep their described appearance/materials consistent): ${sheets.join(" | ")}.`);
   } else if (worldBible?.characters) {
     lines.push(`Established characters (keep consistent if referenced): ${worldBible.characters}.`);
   }

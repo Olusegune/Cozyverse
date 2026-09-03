@@ -7,7 +7,7 @@ import { PromptAssist } from "../components/PromptAssist";
 import { ContinuityCheck } from "../components/ContinuityCheck";
 import * as api from "../lib/api";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
-import { projectCharacters } from "../types";
+import { entityKind, ENTITY_KIND_LABELS, projectCharacters } from "../types";
 
 export function MotionStudioPage() {
   const project = useAppStore((state) => state.project);
@@ -315,7 +315,7 @@ export function MotionStudioPage() {
 
                 {characters.length > 0 && (
                   <div>
-                    <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Characters in this Shot</label>
+                    <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Cast &amp; Props in this Shot</label>
                     <div className="flex flex-wrap gap-1.5">
                       {characters.map((character) => {
                         const selected = shotCharacterIds.includes(character.id);
@@ -323,6 +323,7 @@ export function MotionStudioPage() {
                           <button
                             key={character.id}
                             type="button"
+                            title={ENTITY_KIND_LABELS[entityKind(character)]}
                             onClick={() => toggleShotCharacter(character.id)}
                             className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
                               selected ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
@@ -334,7 +335,7 @@ export function MotionStudioPage() {
                       })}
                     </div>
                     <p className="text-[11px] text-slate-500 mt-1.5">
-                      Auto-attaches each character's reference image (if this model supports one) and folds their style sheet into the prompt either way.
+                      Auto-attaches each one's reference image (if this model supports one) and folds its style sheet into the prompt either way.
                     </p>
                     <div className="mt-2">
                       <ContinuityCheck

@@ -59,7 +59,7 @@ export function ContinuityCheck({
         onClick={() => void run()}
         disabled={!prompt.trim() || checking}
         className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-base-600 text-slate-400 hover:text-accent-400 hover:border-accent-500 transition shrink-0 disabled:opacity-40"
-        title="Compare this prompt against established characters and Things to Avoid"
+        title="Compare this prompt against established cast, props, and Things to Avoid"
       >
         {checking ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />} Check Continuity
       </button>

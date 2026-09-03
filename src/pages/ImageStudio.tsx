@@ -9,7 +9,7 @@ import { PromptAssist } from "../components/PromptAssist";
 import { ContinuityCheck } from "../components/ContinuityCheck";
 import { StyleFromPhoto } from "../components/StyleFromPhoto";
 import { PostcardExport } from "../components/PostcardExport";
-import { emptyWorldBible, projectCharacters, type Asset } from "../types";
+import { emptyWorldBible, entityKind, ENTITY_KIND_LABELS, projectCharacters, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
 import {
   activeStackCount,
@@ -295,7 +295,7 @@ export function ImageStudioPage() {
                   </div>
                   {characters.length > 0 && (
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Characters in this Shot</label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Cast &amp; Props in this Shot</label>
                       <div className="flex flex-wrap gap-1.5">
                         {characters.map((character) => {
                           const selected = shotCharacterIds.includes(character.id);
@@ -303,6 +303,7 @@ export function ImageStudioPage() {
                             <button
                               key={character.id}
                               type="button"
+                              title={ENTITY_KIND_LABELS[entityKind(character)]}
                               onClick={() => toggleShotCharacter(character.id)}
                               className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
                                 selected ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
@@ -314,7 +315,7 @@ export function ImageStudioPage() {
                         })}
                       </div>
                       <p className="text-[11px] text-slate-500 mt-1.5">
-                        Auto-attaches each character's reference image (if the model supports one) and folds their style sheet into the prompt either way.
+                        Auto-attaches each one's reference image (if the model supports one) and folds its style sheet into the prompt either way.
                       </p>
                       <div className="mt-2">
                         <ContinuityCheck

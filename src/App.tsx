@@ -61,7 +61,7 @@ export function App() {
     { key: "projects", label: "Projects", icon: FolderOpen, chip: "bg-slate-500/20", iconColor: "text-slate-300" },
     { key: "map", label: "World Map", icon: Map, chip: "bg-amber-500/20", iconColor: "text-amber-400" },
     { key: "world", label: "World Bible", icon: BookOpen, chip: "bg-violet-500/20", iconColor: "text-violet-400" },
-    { key: "characters", label: "Characters", icon: Users, chip: "bg-pink-500/20", iconColor: "text-pink-400" },
+    { key: "characters", label: "Cast & Props", icon: Users, chip: "bg-pink-500/20", iconColor: "text-pink-400" },
     { key: "create", label: "Image Studio", icon: Wand2, chip: "bg-accent-500/20", iconColor: "text-accent-400" },
     { key: "motion", label: "Motion Studio", icon: Film, chip: "bg-sky-500/20", iconColor: "text-sky-400" },
     { key: "audio", label: "Audio Studio", icon: Volume2, chip: "bg-emerald-500/20", iconColor: "text-emerald-400" },

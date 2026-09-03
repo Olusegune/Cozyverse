@@ -1,4 +1,4 @@
-import type { Character, WorldBible } from "../types";
+import { entityKind, ENTITY_KIND_LABELS, type Character, type WorldBible } from "../types";
 
 export type ContinuityIssue = {
   /** What's wrong or missing, in plain language — e.g. "Amara's style sheet says she always wears
@@ -19,14 +19,14 @@ function buildContinuitySystemPrompt(characters: Character[], worldBible: WorldB
 
   const sheets = characters.filter((character) => character.styleSheet.trim());
   if (sheets.length > 0) {
-    lines.push("Established characters (their appearance/traits must stay consistent whenever they appear in a prompt):");
-    for (const character of sheets) lines.push(`- ${character.name}: ${character.styleSheet.trim()}`);
+    lines.push("Established cast and props (their appearance/materials must stay consistent whenever they appear in a prompt):");
+    for (const character of sheets) lines.push(`- ${character.name} (${ENTITY_KIND_LABELS[entityKind(character)].toLowerCase()}): ${character.styleSheet.trim()}`);
   }
   if (worldBible?.thingsToAvoid) lines.push(`Things this world must always avoid: ${worldBible.thingsToAvoid}.`);
   if (worldBible?.characters) lines.push(`World Bible's general character notes: ${worldBible.characters}.`);
 
   lines.push(
-    "Compare the prompt against ONLY the facts above. For each real contradiction or clearly missing established detail (e.g. a named character appears but a defining trait from their style sheet is absent), output one line in this exact format:",
+    "Compare the prompt against ONLY the facts above. For each real contradiction or clearly missing established detail (e.g. a named character, prop, vehicle, or set appears but a defining trait from its style sheet is absent), output one line in this exact format:",
     "ISSUE: <one short sentence describing the problem> | ADD: <a short phrase to append to the prompt that fixes it, or empty if there's no simple fix-by-addition>",
     "If there are no real issues, output exactly: OK",
     "Do not invent issues, do not comment on style or quality, do not output anything except ISSUE/ADD lines or OK. Output nothing else — no preamble, no explanation.",

@@ -8,7 +8,7 @@ import { buildExportManifest, validateForExport } from "../lib/exportFormat";
 import { assignVoices, parseDialogueScript } from "../lib/dialogueScript";
 import { pickBackgroundForControls } from "../lib/sceneMatching";
 import { emptyScene } from "../types";
-import type { Asset, AssetType, Character, CozyverseProject, CozyverseSummary, GenerationJob, Scene, TimelineShot, WorldBible } from "../types";
+import type { Asset, AssetType, Character, CozyverseProject, CozyverseSummary, EntityKind, GenerationJob, Scene, TimelineShot, WorldBible } from "../types";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -103,7 +103,7 @@ type AppState = {
   updateScene: (sceneId: string, patch: Partial<Scene>) => Promise<void>;
   setSceneControlValue: (sceneId: string, controlId: string, value: number | boolean | string) => Promise<void>;
   bringSceneToLife: (sceneId: string, useReal?: boolean) => Promise<boolean>;
-  addCharacter: (name: string) => Promise<void>;
+  addCharacter: (name: string, kind?: EntityKind) => Promise<void>;
   removeCharacter: (characterId: string) => Promise<void>;
   updateCharacter: (characterId: string, patch: Partial<Character>) => Promise<void>;
   toggleCharacterReference: (characterId: string, assetId: string) => Promise<void>;
@@ -1173,10 +1173,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     await api.saveCozyverseJson(dirName, nextProject);
   },
 
-  addCharacter: async (name: string) => {
+  addCharacter: async (name: string, kind: EntityKind = "character") => {
     const { project, dirName } = get();
     if (!project || !dirName) return;
-    const character: Character = { id: crypto.randomUUID(), name: name.trim() || "New Character", styleSheet: "", referenceAssetIds: [], createdAt: new Date().toISOString() };
+    const character: Character = { id: crypto.randomUUID(), name: name.trim() || "New Character", kind, styleSheet: "", referenceAssetIds: [], createdAt: new Date().toISOString() };
     const nextProject: CozyverseProject = { ...project, characters: [...(project.characters ?? []), character] };
     set({ project: nextProject });
     await api.saveCozyverseJson(dirName, nextProject);
