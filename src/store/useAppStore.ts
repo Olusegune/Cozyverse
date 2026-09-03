@@ -6,6 +6,7 @@ import { audioModelForKind, dialogueModel, elevenLabsVoiceIds, pickConnectedMode
 import { modelById } from "../lib/providers/modelRegistry";
 import { buildExportManifest, validateForExport } from "../lib/exportFormat";
 import { assignVoices, parseDialogueScript } from "../lib/dialogueScript";
+import { pickBackgroundForControls } from "../lib/sceneMatching";
 import { emptyScene } from "../types";
 import type { Asset, AssetType, Character, CozyverseProject, CozyverseSummary, GenerationJob, Scene, TimelineShot, WorldBible } from "../types";
 
@@ -63,6 +64,9 @@ type AppState = {
   generatingMotion: boolean;
   generatingAudio: boolean;
   activeSceneId: string | null;
+  /** Non-null while bringSceneToLife is mid-flight for that scene — drives the "Bring to Life"
+   * button's loading state without a separate spinner per generation kind. */
+  bringingToLifeSceneId: string | null;
 
   refreshSummaries: () => Promise<void>;
   createAndOpen: (name: string) => Promise<void>;
@@ -98,6 +102,7 @@ type AppState = {
   removeScene: (sceneId: string) => Promise<void>;
   updateScene: (sceneId: string, patch: Partial<Scene>) => Promise<void>;
   setSceneControlValue: (sceneId: string, controlId: string, value: number | boolean | string) => Promise<void>;
+  bringSceneToLife: (sceneId: string, useReal?: boolean) => Promise<boolean>;
   addCharacter: (name: string) => Promise<void>;
   removeCharacter: (characterId: string) => Promise<void>;
   updateCharacter: (characterId: string, patch: Partial<Character>) => Promise<void>;
@@ -188,6 +193,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   generating: false,
   generatingMotion: false,
   generatingAudio: false,
+  bringingToLifeSceneId: null,
   activeSceneId: null,
   upscalingAssetId: null,
   exporting: false,
@@ -1208,6 +1214,76 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
     set({ project: nextProject });
     await api.saveCozyverseJson(dirName, nextProject);
+  },
+
+  // Turns a still scene into a fully layered one — motion + ambience + music — with a single click,
+  // instead of four separate trips through Motion Studio and Audio Studio. Reuses the existing
+  // generateMotion/generateAudio actions unchanged (so this can never drift from what those produce
+  // on their own) with blank description text, which their own intent builders already turn into
+  // sensible World-Bible-driven defaults — the same "Ambient drift" fallback Simple Mode uses when
+  // its own field is left blank. Each successful clip is located by taking the newest matching asset
+  // off the end of project.assets right after its generation call resolves (generateMotion/
+  // generateAudio don't return the created asset's id, only success/failure), which is safe because
+  // both actions always push the new asset as the last array entry before returning.
+  bringSceneToLife: async (sceneId: string, useReal = false) => {
+    const { project } = get();
+    if (!project) return false;
+    const scene = project.scenes.find((existing) => existing.id === sceneId);
+    if (!scene) return false;
+
+    const controls: Record<string, string> = { weather: "Clear", timeOfDay: "Day", lighting: "Natural" };
+    for (const control of scene.controls) {
+      if (control.target === "weather" || control.target === "time" || control.target === "lighting") {
+        controls[control.target === "time" ? "timeOfDay" : control.target] = String(control.value);
+      }
+    }
+    const background = pickBackgroundForControls(project.assets, project.generations, { weather: controls.weather, timeOfDay: controls.timeOfDay, lighting: controls.lighting }, scene.backgroundAssetId);
+    if (!background) {
+      set({ error: "This scene needs a background image before it can be brought to life — generate one in Image Studio first." });
+      return false;
+    }
+
+    set({ bringingToLifeSceneId: sceneId });
+    let anySucceeded = false;
+
+    if (!scene.motionAssetId) {
+      const ok = await get().generateMotion(background.id, "", 5, true, useReal);
+      if (ok) {
+        const assets = get().project?.assets ?? [];
+        const newest = [...assets].reverse().find((asset) => asset.type === "video" && asset.parentAssetId === background.id);
+        if (newest) {
+          await get().updateScene(sceneId, { motionAssetId: newest.id });
+          anySucceeded = true;
+        }
+      }
+    }
+
+    if (!scene.ambienceAssetId) {
+      const ok = await get().generateAudio("ambience", "", 6, true, useReal);
+      if (ok) {
+        const assets = get().project?.assets ?? [];
+        const newest = [...assets].reverse().find((asset) => asset.type === "audio");
+        if (newest) {
+          await get().updateScene(sceneId, { ambienceAssetId: newest.id });
+          anySucceeded = true;
+        }
+      }
+    }
+
+    if (!scene.musicAssetId) {
+      const ok = await get().generateAudio("music", "", 10, true, useReal);
+      if (ok) {
+        const assets = get().project?.assets ?? [];
+        const newest = [...assets].reverse().find((asset) => asset.type === "music");
+        if (newest) {
+          await get().updateScene(sceneId, { musicAssetId: newest.id });
+          anySucceeded = true;
+        }
+      }
+    }
+
+    set({ bringingToLifeSceneId: null, notice: anySucceeded ? "Scene brought to life." : null });
+    return anySucceeded;
   },
 
   addTimelineShot: async (sceneId: string) => {

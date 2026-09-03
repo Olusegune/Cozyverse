@@ -1,7 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { Clapperboard, Clock, Download, Film, Music, Plus, Trash2, Video, Volume2, Waves } from "lucide-react";
+import { Clapperboard, Clock, Download, Film, Loader2, Music, Plus, Sparkles, Trash2, Video, Volume2, Waves } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { pickBackgroundForControls } from "../lib/sceneMatching";
+import { connectedProviders } from "../lib/providers/realGeneration";
 import type { Scene } from "../types";
 import * as api from "../lib/api";
 import { RenderErrorMessage } from "../components/RenderErrorMessage";
@@ -19,6 +20,13 @@ export function SceneComposerPage() {
   const removeScene = useAppStore((state) => state.removeScene);
   const updateScene = useAppStore((state) => state.updateScene);
   const setSceneControlValue = useAppStore((state) => state.setSceneControlValue);
+  const bringSceneToLife = useAppStore((state) => state.bringSceneToLife);
+  const bringingToLifeSceneId = useAppStore((state) => state.bringingToLifeSceneId);
+  const [hasConnectedProvider, setHasConnectedProvider] = useState(false);
+
+  useEffect(() => {
+    void connectedProviders().then((set) => setHasConnectedProvider(set.size > 0));
+  }, []);
 
   const [addingScene, setAddingScene] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -213,6 +221,24 @@ export function SceneComposerPage() {
                   onChange={(value) => patch({ musicAssetId: value || undefined })}
                 />
               </div>
+
+              {(!scene.motionAssetId || !scene.ambienceAssetId || !scene.musicAssetId) && (
+                <div className="mt-4">
+                  <button
+                    disabled={bringingToLifeSceneId === scene.id || !scene.backgroundAssetId}
+                    onClick={() => void bringSceneToLife(scene.id, hasConnectedProvider)}
+                    title={scene.backgroundAssetId ? undefined : "This scene needs a background image first — generate one in Image Studio."}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg border border-accent-500/50 hover:border-accent-500 bg-accent-500/10 hover:bg-accent-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-accent-400 px-4 py-2.5 text-sm font-medium transition"
+                  >
+                    {bringingToLifeSceneId === scene.id ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    {bringingToLifeSceneId === scene.id ? "Bringing to life…" : "Bring This Scene to Life"}
+                  </button>
+                  <p className="text-[11px] text-slate-500 mt-1.5 text-center">
+                    Fills in whichever layers are missing above — motion, ambience, music — in one go, using this scene's own mood and conditions.
+                    {!hasConnectedProvider && " Using mock (local, free) rendering — add a provider key in Settings for real generation."}
+                  </p>
+                </div>
+              )}
 
               {sfxAssets.length > 0 && (
                 <div className="mt-4">
