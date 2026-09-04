@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Plus, Trash2, User, Package, Car, Layers, X } from "lucide-react";
+import { Expand, Plus, Trash2, User, Package, Car, Layers, X } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { EntityReferenceGenerator } from "../components/EntityReferenceGenerator";
 import { DesignSheetExport } from "../components/DesignSheetExport";
-import { ENTITY_KIND_LABELS, entityKind, projectCharacters, type EntityKind } from "../types";
+import { Lightbox } from "../components/Lightbox";
+import { ENTITY_KIND_LABELS, entityKind, projectCharacters, type Asset, type EntityKind } from "../types";
 
 const KIND_ICON: Record<EntityKind, typeof User> = { character: User, prop: Package, vehicle: Car, set: Layers };
 const KIND_ORDER: EntityKind[] = ["character", "prop", "vehicle", "set"];
@@ -23,6 +24,7 @@ export function CharactersPage() {
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<EntityKind>("character");
   const [pickingRefsFor, setPickingRefsFor] = useState<string | null>(null);
+  const [lightboxAsset, setLightboxAsset] = useState<Asset | null>(null);
 
   if (!project) return null;
   const entities = projectCharacters(project);
@@ -150,14 +152,25 @@ export function CharactersPage() {
                           ) : (
                             <div className="grid grid-cols-5 gap-1.5">
                               {references.map((asset) => (
-                                <div key={asset.id} className="relative aspect-square rounded-md overflow-hidden border border-accent-500/50">
-                                  <img src={assetUrl(asset)} alt="" className="w-full h-full object-cover" />
-                                  {pickingRefsFor === entity.id && (
+                                <div key={asset.id} className="group relative aspect-square rounded-md overflow-hidden border border-accent-500/50">
+                                  <button type="button" onClick={() => setLightboxAsset(asset)} className="block w-full h-full">
+                                    <img src={assetUrl(asset)} alt="" className="w-full h-full object-cover" />
+                                  </button>
+                                  {pickingRefsFor === entity.id ? (
                                     <button
                                       onClick={() => void toggleCharacterReference(entity.id, asset.id)}
                                       className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 hover:opacity-100 transition"
+                                      title="Remove this reference"
                                     >
                                       <X size={14} className="text-white" />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => setLightboxAsset(asset)}
+                                      className="absolute bottom-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition"
+                                      title="View full size"
+                                    >
+                                      <Expand size={11} />
                                     </button>
                                   )}
                                 </div>
@@ -203,6 +216,10 @@ export function CharactersPage() {
             );
           })}
         </div>
+      )}
+
+      {lightboxAsset && (
+        <Lightbox src={assetUrl(lightboxAsset) || ""} alt={lightboxAsset.name} onClose={() => setLightboxAsset(null)} />
       )}
     </div>
   );
