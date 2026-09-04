@@ -192,22 +192,26 @@ export const defaultStyleStack = (): StyleStackControls => ({
   customStyleDescription: "",
 });
 
-const STACK_AXES: Array<{ key: keyof StyleStackControls; presets: StylePreset[] }> = [
-  { key: "artStyle", presets: ART_STYLE_PRESETS },
-  { key: "edgeStyle", presets: EDGE_STYLE_PRESETS },
-  { key: "construction", presets: CONSTRUCTION_PRESETS },
-  { key: "material", presets: MATERIAL_PRESETS },
-  { key: "realism", presets: REALISM_PRESETS },
-  { key: "lightingPreset", presets: LIGHTING_PRESETS },
-  { key: "colorPreset", presets: COLOR_PRESETS },
-  { key: "atmospherePreset", presets: ATMOSPHERE_PRESETS },
-  { key: "cameraPreset", presets: CAMERA_PRESETS },
+/** The single shared definition of every Style Stack axis — key, its presets, and a UI label.
+ * Exported so any picker (Image Studio, the Cast & Props entity reference generator, anywhere else
+ * that needs to offer "match the project's visual style") renders the exact same axes in the exact
+ * same order from one source, instead of each screen keeping its own copy that can drift. */
+export const STYLE_STACK_AXES: Array<{ key: keyof StyleStackControls; label: string; presets: StylePreset[] }> = [
+  { key: "artStyle", label: "Art Style", presets: ART_STYLE_PRESETS },
+  { key: "edgeStyle", label: "Edge Style", presets: EDGE_STYLE_PRESETS },
+  { key: "construction", label: "Diorama Construction", presets: CONSTRUCTION_PRESETS },
+  { key: "material", label: "Material", presets: MATERIAL_PRESETS },
+  { key: "realism", label: "Realism Level", presets: REALISM_PRESETS },
+  { key: "lightingPreset", label: "Lighting Preset", presets: LIGHTING_PRESETS },
+  { key: "colorPreset", label: "Color Preset", presets: COLOR_PRESETS },
+  { key: "atmospherePreset", label: "Atmosphere", presets: ATMOSPHERE_PRESETS },
+  { key: "cameraPreset", label: "Camera / Composition", presets: CAMERA_PRESETS },
 ];
 
 /** Resolves every set axis in the stack to its prompt fragment, in a fixed, sensible order. */
 export function composeStyleStackFragments(stack: StyleStackControls): string[] {
   const fragments: string[] = [];
-  for (const { key, presets } of STACK_AXES) {
+  for (const { key, presets } of STYLE_STACK_AXES) {
     const value = stack[key];
     if (!value) continue;
     const preset = presets.find((p) => p.value === value);
@@ -219,5 +223,5 @@ export function composeStyleStackFragments(stack: StyleStackControls): string[] 
 
 /** How many axes have a non-default selection — used to badge the collapsed Style Stack panel. */
 export function activeStackCount(stack: StyleStackControls): number {
-  return STACK_AXES.reduce((count, { key }) => count + (stack[key] ? 1 : 0), 0) + (stack.customStyleDescription.trim() ? 1 : 0);
+  return STYLE_STACK_AXES.reduce((count, { key }) => count + (stack[key] ? 1 : 0), 0) + (stack.customStyleDescription.trim() ? 1 : 0);
 }

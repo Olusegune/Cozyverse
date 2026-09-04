@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Loader2, RotateCw, Sparkles, UploadCloud } from "lucide-react";
+import { ChevronDown, Loader2, RotateCw, Sparkles, UploadCloud } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
-import { defaultStyleStack } from "../lib/styleStack";
+import { activeStackCount, defaultStyleStack, STYLE_STACK_AXES, type StyleStackControls } from "../lib/styleStack";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 import type { EntityKind } from "../types";
 
@@ -45,11 +45,39 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
   const [busy, setBusy] = useState<"generate" | "import" | "turnaround" | null>(null);
   const [turnaroundProgress, setTurnaroundProgress] = useState<{ step: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [styleStack, setStyleStack] = useState<StyleStackControls>(defaultStyleStack());
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [styleSeeded, setStyleSeeded] = useState(false);
 
   useEffect(() => {
     void connectedProviders().then((set) => setHasConnectedProvider(set.size > 0));
     void connectedModelsFor("image").then(setModels);
   }, []);
+
+  // Inherit the project's own established visual style by default, so a character/prop/vehicle/set
+  // reference doesn't come out looking like a different project — Image Studio's own generations
+  // already record their Style Stack selections on each job (buildImageIntent's settings.styleStack),
+  // so the most recent one IS the project's current look, not a guess. Still fully editable below;
+  // only seeds once per mount so it never fights the user's own picks mid-session.
+  useEffect(() => {
+    if (styleSeeded) return;
+    const generations = useAppStore.getState().project?.generations ?? [];
+    const lastStyled = generations.find(
+      (job) => job.type === "image" && (job.settings as { styleStack?: StyleStackControls })?.styleStack?.artStyle,
+    );
+    const inherited = (lastStyled?.settings as { styleStack?: StyleStackControls } | undefined)?.styleStack;
+    if (inherited) {
+      // Merge over a fresh default rather than using the stored object directly — an older saved
+      // generation can predate a Style Stack axis that's since been added (confirmed live: an old
+      // record missing customStyleDescription crashed activeStackCount's .trim() call on undefined).
+      // The default's "" for every axis is a safe fallback for anything the old record doesn't have.
+      setStyleStack({ ...defaultStyleStack(), ...inherited });
+      setStyleOpen(true);
+    }
+    setStyleSeeded(true);
+  }, [styleSeeded]);
+
+  const patchStyleStack = (patch: Partial<StyleStackControls>) => setStyleStack((current) => ({ ...current, ...patch }));
 
   // Pre-fill with the style sheet + a kind-appropriate framing hint the first time there's
   // something to seed from, but never overwrite text the user has already started editing.
@@ -72,7 +100,7 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
         customInstruction: "",
         variantStrength: 0.6,
         aspectRatio: "1:1",
-        styleStack: defaultStyleStack(),
+        styleStack,
         rawPromptOverride: promptText,
       },
       undefined,
@@ -154,6 +182,43 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
         placeholder="Describe the reference image to generate — starts from the style sheet above, edit as needed."
         className="w-full bg-base-800 border border-base-600 rounded-md px-2.5 py-1.5 text-[11px] text-white outline-none focus:border-accent-500 resize-none"
       />
+
+      <div className="rounded-md border border-base-700 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setStyleOpen((open) => !open)}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400 hover:text-white transition"
+        >
+          <span className="flex items-center gap-1.5 normal-case tracking-normal">
+            Match project style
+            {activeStackCount(styleStack) > 0 && (
+              <span className="bg-accent-500 text-accentText text-[10px] px-1.5 py-0.5 rounded-full">{activeStackCount(styleStack)}</span>
+            )}
+          </span>
+          <ChevronDown size={12} className={`transition-transform ${styleOpen ? "rotate-180" : ""}`} />
+        </button>
+        {styleOpen && (
+          <div className="px-2.5 pb-2.5 grid grid-cols-2 gap-1.5 border-t border-base-700 pt-2">
+            {STYLE_STACK_AXES.map(({ key, label, presets }) => (
+              <div key={key}>
+                <label className="block text-[10px] text-slate-500 mb-0.5">{label}</label>
+                <select
+                  value={styleStack[key]}
+                  onChange={(event) => patchStyleStack({ [key]: event.target.value } as Partial<StyleStackControls>)}
+                  className="w-full bg-base-800 border border-base-600 rounded-md px-1.5 py-1 text-[11px] text-white outline-none focus:border-accent-500"
+                >
+                  {presets.map((preset) => (
+                    <option key={preset.value} value={preset.value}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-1.5 flex-wrap">
         {models.length > 0 && (
           <select

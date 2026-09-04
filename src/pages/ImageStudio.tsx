@@ -11,35 +11,11 @@ import { StyleFromPhoto } from "../components/StyleFromPhoto";
 import { PostcardExport } from "../components/PostcardExport";
 import { emptyWorldBible, entityKind, ENTITY_KIND_LABELS, projectCharacters, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
-import {
-  activeStackCount,
-  ART_STYLE_PRESETS,
-  ATMOSPHERE_PRESETS,
-  CAMERA_PRESETS,
-  COLOR_PRESETS,
-  CONSTRUCTION_PRESETS,
-  EDGE_STYLE_PRESETS,
-  LIGHTING_PRESETS,
-  MATERIAL_PRESETS,
-  REALISM_PRESETS,
-  type StyleStackControls,
-} from "../lib/styleStack";
+import { activeStackCount, CAMERA_PRESETS, STYLE_STACK_AXES, type StyleStackControls } from "../lib/styleStack";
 import { LIGHTING_OPTIONS, MOOD_PRESETS, TIME_OPTIONS, WEATHER_OPTIONS } from "../lib/sceneOptions";
 
 const SEASON_OPTIONS = ["Any", "Spring", "Summer", "Autumn", "Winter"];
 const ASPECT_RATIO_OPTIONS = ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"];
-
-const STYLE_STACK_AXES: Array<{ key: keyof StyleStackControls; label: string; presets: typeof ART_STYLE_PRESETS }> = [
-  { key: "artStyle", label: "Art Style", presets: ART_STYLE_PRESETS },
-  { key: "edgeStyle", label: "Edge Style", presets: EDGE_STYLE_PRESETS },
-  { key: "construction", label: "Diorama Construction", presets: CONSTRUCTION_PRESETS },
-  { key: "material", label: "Material", presets: MATERIAL_PRESETS },
-  { key: "realism", label: "Realism Level", presets: REALISM_PRESETS },
-  { key: "lightingPreset", label: "Lighting Preset", presets: LIGHTING_PRESETS },
-  { key: "colorPreset", label: "Color Preset", presets: COLOR_PRESETS },
-  { key: "atmospherePreset", label: "Atmosphere", presets: ATMOSPHERE_PRESETS },
-  { key: "cameraPreset", label: "Camera / Composition", presets: CAMERA_PRESETS },
-];
 
 export function ImageStudioPage() {
   const project = useAppStore((state) => state.project);
