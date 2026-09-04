@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Loader2, RotateCw, Sparkles, UploadCloud } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
@@ -79,11 +79,21 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
 
   const patchStyleStack = (patch: Partial<StyleStackControls>) => setStyleStack((current) => ({ ...current, ...patch }));
 
-  // Pre-fill with the style sheet + a kind-appropriate framing hint the first time there's
-  // something to seed from, but never overwrite text the user has already started editing.
+  // Keeps the prompt live-mirrored to the style sheet + a kind-appropriate framing hint as long as
+  // the user hasn't typed anything of their own into the prompt field yet — NOT a one-time seed.
+  // A one-time "if prompt is empty, seed it" effect fires on every keystroke of styleSheet (it's a
+  // live-typed prop from the parent, not a value that arrives whole), so it would seed from
+  // whatever partial text existed after the very first character and then lock in — confirmed live:
+  // a style sheet of "a black mid 30s woman in silvery sci-fi set" produced a prompt starting "a,"
+  // because the effect fired and got "stuck" the moment a single "a" existed. Tracking the last
+  // auto-derived value and only overwriting when the current prompt still equals it (or is empty)
+  // means the prompt stays in sync while styleSheet is being typed, and stops syncing the instant
+  // the user edits the prompt field directly instead.
+  const autoPromptRef = useRef("");
   useEffect(() => {
-    if (prompt.trim()) return;
-    if (styleSheet.trim()) setPrompt(`${styleSheet.trim()}, ${KIND_HINT[kind]}`);
+    const derived = styleSheet.trim() ? `${styleSheet.trim()}, ${KIND_HINT[kind]}` : "";
+    if (prompt === "" || prompt === autoPromptRef.current) setPrompt(derived);
+    autoPromptRef.current = derived;
   }, [styleSheet, kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** One generation call, resolved down to "did a new image asset land." Shared by the single

@@ -424,6 +424,13 @@ export function MotionStudioPage() {
                   const showVideo = Boolean(mentions?.video) && shotReferenceVideoId;
                   const showAudio = Boolean(mentions?.audio) && shotReferenceAudioIds.length > 0;
                   if (!showImages && !showVideo && !showAudio) return null;
+                  // The model's actual @mention syntax is fixed (@Image1, @Image2, ... — a real API
+                  // contract, not something Cozyverse can rename), so the inserted token always stays
+                  // positional. But a chip that just says "@Image2" gives no way to tell which named
+                  // Cast & Props entity that position actually is — label it with the entity's name
+                  // whenever this reference image IS one, so picking the right mention doesn't mean
+                  // counting positions by hand.
+                  const entityNameForAsset = (assetId: string) => characters.find((character) => character.referenceAssetIds[0] === assetId)?.name;
                   return (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Insert Reference in Prompt</label>
@@ -432,15 +439,20 @@ export function MotionStudioPage() {
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {showImages &&
-                          shotReferenceIds.map((_, index) => (
-                            <button
-                              key={`image-${index}`}
-                              onClick={() => insertMention(`Image${index + 1}`)}
-                              className="text-[11px] px-2 py-1 rounded-md border border-base-600 text-slate-300 hover:text-white hover:border-accent-500 transition"
-                            >
-                              @Image{index + 1}
-                            </button>
-                          ))}
+                          shotReferenceIds.map((assetId, index) => {
+                            const entityName = entityNameForAsset(assetId);
+                            return (
+                              <button
+                                key={`image-${index}`}
+                                onClick={() => insertMention(`Image${index + 1}`)}
+                                title={entityName ? `${entityName}'s reference image` : undefined}
+                                className="text-[11px] px-2 py-1 rounded-md border border-base-600 text-slate-300 hover:text-white hover:border-accent-500 transition"
+                              >
+                                @Image{index + 1}
+                                {entityName && <span className="text-accent-400"> ({entityName})</span>}
+                              </button>
+                            );
+                          })}
                         {showVideo && (
                           <button
                             onClick={() => insertMention("Video1")}
