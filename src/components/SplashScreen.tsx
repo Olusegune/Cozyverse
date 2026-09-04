@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { HelpCircle, X } from "lucide-react";
 
 const LAST_SPLASH_KEY = "cozyverse-last-splash";
 const AUTO_DISMISS_MS = 8000;
@@ -13,7 +13,7 @@ function nextVariant(): SplashVariant {
   return next;
 }
 
-export function SplashScreen({ onDismiss }: { onDismiss: () => void }) {
+export function SplashScreen({ onDismiss, onHelp }: { onDismiss: () => void; onHelp: () => void }) {
   const [variant] = useState<SplashVariant>(nextVariant);
   const [closing, setClosing] = useState(false);
 
@@ -39,16 +39,29 @@ export function SplashScreen({ onDismiss }: { onDismiss: () => void }) {
           alt="Cozyverse Studio"
           className="w-full h-auto max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl"
         />
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            dismiss();
-          }}
-          aria-label="Close splash screen"
-          className="absolute -top-3 -right-3 flex items-center gap-1.5 text-xs text-white/80 hover:text-white bg-black/60 hover:bg-black/80 rounded-full px-3 py-1.5 transition"
-        >
-          <X size={14} /> Skip
-        </button>
+        <div className="absolute -top-3 -right-3 flex items-center gap-2">
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onHelp();
+            }}
+            aria-label="Open Help & Documentation"
+            title="Help & Documentation"
+            className="flex items-center gap-1.5 text-xs text-white/80 hover:text-white bg-black/60 hover:bg-black/80 rounded-full px-3 py-1.5 transition"
+          >
+            <HelpCircle size={14} /> Help
+          </button>
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              dismiss();
+            }}
+            aria-label="Close splash screen"
+            className="flex items-center gap-1.5 text-xs text-white/80 hover:text-white bg-black/60 hover:bg-black/80 rounded-full px-3 py-1.5 transition"
+          >
+            <X size={14} /> Skip
+          </button>
+        </div>
       </div>
     </div>
   );

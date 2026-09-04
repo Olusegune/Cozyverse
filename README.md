@@ -16,10 +16,27 @@ Scene Composer's Live Preview does, so it's always in sync), with dots showing w
 motion/ambience/music are filled in, and a "Story Order" strip above it showing the Storyboard
 timeline's actual sequence when one exists. Click a tile to jump into Scene Composer for that scene.
 
-**Characters** (its own nav item) are recurring characters defined once — a name, a free-text style
-sheet (appearance/wardrobe/personality), and reference images — then picked into any Shot Mode
-generation in Image or Motion Studio. Picking a character auto-attaches its reference image (on
-models that support one) and folds its style sheet into the prompt either way.
+**Cast & Props** (its own nav item, formerly "Characters") are recurring characters, props, vehicles,
+and sets defined once — a name, a free-text style sheet, and reference images — then picked into any
+Shot Mode generation in Image or Motion Studio. Picking one auto-attaches its reference image (on
+models that support one) and folds its style sheet into the prompt either way. Characters, props,
+vehicles, and sets are all the same underlying data shape (`Character` with a `kind` field) rather
+than four separate features, so every downstream consumer (the Shot Mode picker, Continuity Guardian,
+Prompt Assist) works with all four automatically.
+
+Each Cast & Props entry can design its own reference images directly, without a detour through Image
+Studio: a prompt field, a model picker, Mock/Auto rendering, and:
+- **Turnaround** — fires front/back/left/right generations in one click, all attached as references.
+  Doubles as prep for a future image-to-3D pipeline (same multi-angle shape that family of models wants).
+- **Match project style** — the full Style Stack (see below), auto-inherited from the project's most
+  recent Image Studio generation so a new entity doesn't look like a different project by default,
+  fully editable.
+- **Design Sheet** — exports a branded reference-sheet PNG (name, style sheet, reference images) like
+  a real production character/prop bible page.
+- **Import File…** — bring in an existing image from disk as a reference.
+
+Reference thumbnails open full-size in a lightbox (click, or hover for the Expand icon) — the same
+viewer Image Studio's own grid uses.
 
 ## Getting started
 
@@ -104,11 +121,16 @@ model), then:
   idea in plain language, get back 2–3 ready-to-use prompt drafts grounded in the project's World
   Bible, active scene conditions, and the target model's own prompting idiom (`src/lib/promptAssist.ts`,
   `src/components/PromptAssist.tsx`).
-- **Continuity Guardian** ("Check Continuity" next to the Characters picker in Image/Motion Studio
-  Shot Mode) — compares the prompt against selected characters' style sheets and the World Bible's
+- **Continuity Guardian** ("Check Continuity" next to the Cast & Props picker in Image/Motion Studio
+  Shot Mode) — compares the prompt against selected entities' style sheets and the World Bible's
   "Things to Avoid" list, flagging contradictions or missing established details with a one-click
   "Add" fix. Silent (never blocks generation) when Ollama isn't configured
   (`src/lib/continuityGuardian.ts`, `src/components/ContinuityCheck.tsx`).
+- **Story Reel Continuity** (Storyboard) — the whole-reel counterpart: compares every scene's own
+  generation prompt against every other scene's, catching cross-scene contradictions a per-shot check
+  structurally can't see (each shot looks fine in isolation; the problem only exists across the
+  sequence). Report-only — there's no single prompt field spanning multiple scenes to patch
+  (`checkReelContinuity` in `src/lib/continuityGuardian.ts`, `src/components/ReelContinuityCheck.tsx`).
 
 Both degrade gracefully — if Ollama isn't running, the button either doesn't render or shows a quiet
 "not set up" hint rather than erroring.
@@ -128,6 +150,10 @@ Both degrade gracefully — if Ollama isn't running, the button either doesn't r
 - **Postcard Export** (Image Studio lightbox) — one-click shareable card of any generated image in
   the app's own gold-on-dark splash-screen identity (`src/lib/postcard.ts`,
   `src/components/PostcardExport.tsx`).
+- **Usage Summary** (Settings) — counts real (non-mock) completed generations this project has made,
+  by provider and cost tier. Deliberately *not* a dollar total — the model registry has no real
+  per-call pricing data, so a $ figure would be a fabricated number dressed up as a real one; the
+  panel says so in its own copy (`src/components/UsageSummary.tsx`).
 
 ## Architecture
 
@@ -149,14 +175,16 @@ Both degrade gracefully — if Ollama isn't running, the button either doesn't r
   engine" rule the whole project follows.
 - **Style Stack** (`src/lib/styleStack.ts`) is a set of independent art-direction axes (Art Style,
   Edge Style, Construction, Material, Realism, Lighting, Color, Atmosphere, Camera) that combine into
-  one prompt fragment. The Art Style axis leads the *entire* generated prompt (ahead of even the
-  World Bible's own subject description) rather than being appended at the end — diffusion models
-  weight earlier tokens more heavily, and a late-appended style fragment gets diluted. Every
-  diorama-family Art Style preset (Cozy 3D Diorama, Retro Sci-Fi Cozy, Miniature/Toy, Handcrafted
-  Clay, etc.) folds explicit camera/composition language (elevated isometric angle, visible base/
-  pedestal, tilt-shift, toy-scale) directly into its own fragment rather than depending on a separate
-  Camera preset nobody would think to pair with it — confirmed live across three iterations that a
-  single word like "diorama" in a longer sentence isn't enough on its own.
+  one prompt fragment. `STYLE_STACK_AXES` is the one shared definition Image Studio and the Cast &
+  Props reference generator both render from, so the two pickers can never drift apart. The Art Style
+  axis leads the *entire* generated prompt (ahead of even the World Bible's own subject description)
+  rather than being appended at the end — diffusion models weight earlier tokens more heavily, and a
+  late-appended style fragment gets diluted. Every diorama-family Art Style preset (Cozy 3D Diorama,
+  Retro Sci-Fi Cozy, Miniature/Toy, Handcrafted Clay, etc.) folds explicit camera/composition language
+  (elevated isometric angle, visible base/pedestal, tilt-shift, toy-scale) directly into its own
+  fragment rather than depending on a separate Camera preset nobody would think to pair with it —
+  confirmed live across three iterations that a single word like "diorama" in a longer sentence isn't
+  enough on its own.
 
 ## Splash screen & branding
 
@@ -165,25 +193,46 @@ Both degrade gracefully — if Ollama isn't running, the button either doesn't r
   To change it, replace the source image and re-run that command.
 - Splash screen images live in `public/splash/exterior.png` and `public/splash/interior.png`. The
   app alternates between them on every launch (tracked in `localStorage`), auto-dismisses after
-  4.5 seconds, and can be skipped immediately via the **Skip** button top-right
+  8 seconds, and can be skipped immediately via the **Skip** button top-right
   (`src/components/SplashScreen.tsx`). To change the artwork, replace those two files — any
   resolution works, they're rendered `object-cover` full-bleed.
+- The splash screen also has a **Help** button next to Skip, opening the same in-app documentation
+  dialog the native File/Help menu's "Documentation" item does (`src/components/HelpDialog.tsx`) —
+  a new user can get oriented before ever touching the app.
+
+## Distribution
+
+- Repo: [github.com/Olusegune/Cozyverse](https://github.com/Olusegune/Cozyverse).
+- `npm run build:win` produces both NSIS and MSI installers (`src-tauri/target/release/bundle/`). A
+  portable, no-install build is just the raw `src-tauri/target/release/cozyverse-studio.exe` — it's a
+  single self-contained binary (frontend assets are embedded at build time), so copying it out under
+  any name works; no separate DLLs or resource folders are needed alongside it.
 
 ## Live-verification status
 
-All six overnight features have now had a real click-through, plus a full Golden Path regression
-pass (World Bible → Motion Studio → Export): World Map (landing view, scene tiles, navigation into
-Scene Composer), Bring This Scene to Life (fired a real ambience generation, auto-linked into the
-scene), Day/Night Scrubber (dragging it swaps the background with a visible crossfade), Postcard
-Export (fired for real — produces a genuinely polished branded card), and Continuity Guardian /
-Prompt Assist (verified earlier in Image/Motion/Audio Studio). Style from a Photo was verified by
-code review rather than a click-through — the automation environment's OS-level file picker runs
-under a process name the sandbox can't authorize, a tooling limitation rather than an app one; the
-extraction pipeline itself reuses the exact Gemini multimodal call shape already proven live
-elsewhere, and the composed-prompt wiring was traced end to end.
+All six overnight features have had a real click-through, plus a full Golden Path regression pass
+(World Bible → Motion Studio → Export): World Map (landing view, scene tiles, navigation into Scene
+Composer), Bring This Scene to Life (fired a real ambience generation, auto-linked into the scene),
+Day/Night Scrubber (dragging it swaps the background with a visible crossfade), Postcard Export
+(fired for real — produces a genuinely polished branded card), and Continuity Guardian / Prompt
+Assist (verified earlier in Image/Motion/Audio Studio). Style from a Photo was verified by code
+review rather than a click-through — the automation environment's OS-level file picker runs under a
+process name the sandbox can't authorize, a tooling limitation rather than an app one; the extraction
+pipeline itself reuses the exact Gemini multimodal call shape already proven live elsewhere.
 
-That regression pass also caught a real bug: exporting a project with an accented name (e.g. "Moon
-Café") silently dropped the accent from the output filename — fixed, see git history.
+Cast & Props' generalization (character/prop/vehicle/set) and its follow-on features were all
+live-verified against real generations across every one of the four kinds: Turnaround (a real 4-angle
+sequence), Design Sheet export (visually inspected the resulting PNG), the reference-image lightbox,
+and Style Stack inheritance (confirmed a new entity auto-picked the project's actual "Retro Sci-Fi
+Cozy" style from real generation history). Story Reel Continuity ran a real check and correctly
+reported "no contradictions." Usage Summary confirmed showing real counts in Settings.
+
+Two real bugs were caught and fixed during these passes, not just theorized about:
+- Exporting a project with an accented name (e.g. "Moon Café") silently dropped the accent from the
+  output filename.
+- Seeding a Cast & Props entity's Style Stack from an older saved generation (predating a since-added
+  axis) crashed on the missing field — fixed by merging over a fresh default instead of using the
+  stored object directly.
 
 ## Known limitations
 

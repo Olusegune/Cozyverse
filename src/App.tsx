@@ -52,7 +52,15 @@ export function App() {
   }, [saveNow]);
 
   if (showSplash) {
-    return <SplashScreen onDismiss={() => setShowSplash(false)} />;
+    return (
+      <SplashScreen
+        onDismiss={() => setShowSplash(false)}
+        onHelp={() => {
+          setShowSplash(false);
+          setHelpOpen(true);
+        }}
+      />
+    );
   }
 
   // Each item gets its own chip color — a deliberate multi-color treatment (like a real icon set,
