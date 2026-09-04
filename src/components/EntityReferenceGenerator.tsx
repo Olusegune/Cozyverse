@@ -48,6 +48,12 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
   const [styleStack, setStyleStack] = useState<StyleStackControls>(defaultStyleStack());
   const [styleOpen, setStyleOpen] = useState(false);
   const [styleSeeded, setStyleSeeded] = useState(false);
+  // Was previously baked in unconditionally — a plain neutral-pose reference sheet is the right
+  // default for most Cast & Props reference images, but not for someone who wants this generation
+  // to show an action pose, a specific expression, or anything else the fixed framing text rules
+  // out. On by default (preserves prior behavior); the prompt still stays fully hand-editable
+  // either way, this just controls what the auto-derived starting point includes.
+  const [includeFramingHint, setIncludeFramingHint] = useState(true);
 
   useEffect(() => {
     void connectedProviders().then((set) => setHasConnectedProvider(set.size > 0));
@@ -91,10 +97,10 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
   // the user edits the prompt field directly instead.
   const autoPromptRef = useRef("");
   useEffect(() => {
-    const derived = styleSheet.trim() ? `${styleSheet.trim()}, ${KIND_HINT[kind]}` : "";
+    const derived = styleSheet.trim() ? [styleSheet.trim(), includeFramingHint && KIND_HINT[kind]].filter(Boolean).join(", ") : "";
     if (prompt === "" || prompt === autoPromptRef.current) setPrompt(derived);
     autoPromptRef.current = derived;
-  }, [styleSheet, kind]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [styleSheet, kind, includeFramingHint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** One generation call, resolved down to "did a new image asset land." Shared by the single
    * Generate button and the Turnaround loop below so both stay byte-for-byte consistent with
@@ -192,6 +198,11 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
         placeholder="Describe the reference image to generate — starts from the style sheet above, edit as needed."
         className="w-full bg-base-800 border border-base-600 rounded-md px-2.5 py-1.5 text-[11px] text-white outline-none focus:border-accent-500 resize-none"
       />
+
+      <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer w-fit">
+        <input type="checkbox" checked={includeFramingHint} onChange={(event) => setIncludeFramingHint(event.target.checked)} />
+        Add neutral reference-sheet framing ({KIND_HINT[kind].split(",")[0]}, plain background…)
+      </label>
 
       <div className="rounded-md border border-base-700 overflow-hidden">
         <button
