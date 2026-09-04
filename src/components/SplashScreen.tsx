@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HelpCircle, X } from "lucide-react";
 
 const LAST_SPLASH_KEY = "cozyverse-last-splash";
@@ -16,15 +16,33 @@ function nextVariant(): SplashVariant {
 export function SplashScreen({ onDismiss, onHelp }: { onDismiss: () => void; onHelp: () => void }) {
   const [variant] = useState<SplashVariant>(nextVariant);
   const [closing, setClosing] = useState(false);
+  const timerRef = useRef<number | null>(null);
 
   const dismiss = () => {
     setClosing(true);
     window.setTimeout(onDismiss, 250);
   };
 
+  // A fixed 8s auto-dismiss doesn't give a real first-time user enough room to notice and click
+  // Help before the splash vanishes out from under their cursor — the fix isn't a longer fixed
+  // number (still a guess), it's pausing the countdown entirely while they're actually looking at
+  // it. Hovering the splash cancels the pending timer; leaving restarts a fresh one, so someone who
+  // never interacts still gets the same original behavior, but reading or reaching for a button
+  // buys unlimited extra time.
+  const clearTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  const startTimer = () => {
+    clearTimer();
+    timerRef.current = window.setTimeout(dismiss, AUTO_DISMISS_MS);
+  };
+
   useEffect(() => {
-    const timer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
-    return () => window.clearTimeout(timer);
+    startTimer();
+    return clearTimer;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -32,6 +50,8 @@ export function SplashScreen({ onDismiss, onHelp }: { onDismiss: () => void; onH
     <div
       className={`fixed inset-0 z-[100] bg-base-950/95 flex items-center justify-center p-10 transition-opacity duration-300 ${closing ? "opacity-0" : "opacity-100"}`}
       onClick={dismiss}
+      onMouseEnter={clearTimer}
+      onMouseLeave={startTimer}
     >
       <div className="relative max-w-2xl w-full">
         <img
