@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Trash2, User, Package, Car, Layers, X } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { EntityReferenceGenerator } from "../components/EntityReferenceGenerator";
+import { DesignSheetExport } from "../components/DesignSheetExport";
 import { ENTITY_KIND_LABELS, entityKind, projectCharacters, type EntityKind } from "../types";
 
 const KIND_ICON: Record<EntityKind, typeof User> = { character: User, prop: Package, vehicle: Car, set: Layers };
@@ -186,6 +187,13 @@ export function CharactersPage() {
                           kind={kind}
                           styleSheet={entity.styleSheet}
                           onAdded={(assetId) => void toggleCharacterReference(entity.id, assetId)}
+                        />
+
+                        <DesignSheetExport
+                          name={entity.name}
+                          kindLabel={ENTITY_KIND_LABELS[kind]}
+                          styleSheet={entity.styleSheet}
+                          imageUrls={references.map((asset) => assetUrl(asset)).filter((url): url is string => Boolean(url))}
                         />
                       </div>
                     );

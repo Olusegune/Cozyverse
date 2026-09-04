@@ -52,6 +52,54 @@ export function parseContinuityIssues(raw: string): ContinuityIssue[] {
   return issues;
 }
 
+/** Builds the system prompt for a whole-reel continuity check — same established-facts framing as
+ * the per-shot check, but comparing a scene's generation prompt against every OTHER scene's, not
+ * just against the cast/props list. A per-shot check can never catch "Amara has an orange head wrap
+ * in Scene 2's prompt but Scene 5's prompt describes her in a blue apron" — each shot looks
+ * internally consistent on its own; the contradiction only exists across the reel. */
+function buildReelContinuitySystemPrompt(characters: Character[], worldBible: WorldBible | undefined): string {
+  const lines: string[] = [
+    "You are a continuity checker for a creative tool called Cozyverse Studio, reviewing an entire sequence of scenes (a \"story reel\") for cross-scene contradictions — not reviewing any one scene in isolation. You will be given the established cast/props, then a numbered list of every scene's own generation prompt in reel order. Your only job is to find real contradictions in how the SAME named character, prop, vehicle, or set is described differently across two or more scenes.",
+  ];
+  const sheets = characters.filter((character) => character.styleSheet.trim());
+  if (sheets.length > 0) {
+    lines.push("Established cast and props (their appearance/materials should stay consistent across every scene they appear in):");
+    for (const character of sheets) lines.push(`- ${character.name} (${ENTITY_KIND_LABELS[entityKind(character)].toLowerCase()}): ${character.styleSheet.trim()}`);
+  }
+  if (worldBible?.thingsToAvoid) lines.push(`Things this world must always avoid: ${worldBible.thingsToAvoid}.`);
+  lines.push(
+    "For each real cross-scene contradiction found, output one line in this exact format:",
+    "ISSUE: <name the scenes involved and the specific contradiction, one short sentence>",
+    "If there are no real cross-scene contradictions, output exactly: OK",
+    "Do not flag a detail simply because one scene mentions it and another doesn't — only flag it when two scenes actively describe the same named thing differently. Do not comment on style, quality, or anything unrelated to consistency. Output nothing else — no preamble, no explanation.",
+  );
+  return lines.join("\n");
+}
+
+export type ReelSceneEntry = { sceneName: string; prompt: string };
+
+/** Runs a whole-story-reel continuity check via the local Ollama model — see
+ * buildReelContinuitySystemPrompt. Silent-empty (not an error) under the same conditions as
+ * checkContinuity: no Ollama configured, no established context, or fewer than two scenes with a
+ * real prompt to actually compare against each other. */
+export async function checkReelContinuity(
+  ollamaGenerate: (serverUrl: string, model: string, system: string, prompt: string) => Promise<string>,
+  ollamaSettings: { serverUrl: string; model: string },
+  scenes: ReelSceneEntry[],
+  characters: Character[],
+  worldBible: WorldBible | undefined,
+): Promise<ContinuityIssue[]> {
+  const withPrompts = scenes.filter((scene) => scene.prompt.trim());
+  if (!ollamaSettings.model || withPrompts.length < 2) return [];
+  const hasContext = characters.some((character) => character.styleSheet.trim());
+  if (!hasContext) return [];
+
+  const system = buildReelContinuitySystemPrompt(characters, worldBible);
+  const userPrompt = withPrompts.map((scene, index) => `${index + 1}. "${scene.sceneName}": ${scene.prompt.trim()}`).join("\n");
+  const raw = await ollamaGenerate(ollamaSettings.serverUrl, ollamaSettings.model, system, userPrompt);
+  return parseContinuityIssues(raw).map((issue) => ({ ...issue, suggestedAddition: "" }));
+}
+
 /** Runs a continuity check via the local Ollama model. Returns an empty array (not an error) when
  * Ollama isn't configured or unreachable — this is a soft, best-effort assist, never a blocker on
  * generation, so callers should treat a thrown error the same as "nothing to flag" and stay silent

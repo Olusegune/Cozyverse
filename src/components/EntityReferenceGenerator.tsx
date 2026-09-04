@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, UploadCloud } from "lucide-react";
+import { Loader2, RotateCw, Sparkles, UploadCloud } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import { defaultStyleStack } from "../lib/styleStack";
@@ -12,6 +12,20 @@ const KIND_HINT: Record<EntityKind, string> = {
   vehicle: "three-quarter view reference shot, plain neutral background, even lighting, the whole vehicle visible",
   set: "wide establishing view, even lighting, the whole space visible",
 };
+
+/** The angles a turnaround generates, in order — the same front/back/left/right coverage a real
+ * production model sheet uses, and deliberately the same shape as the multi-angle image sets an
+ * image-to-3D reconstruction pipeline wants later (front/back/left/right/perspective), so this
+ * doubles as prep work for that goal without having to guess at it now. Each angle's instruction is
+ * appended to whatever the user already typed, with an explicit "identical subject" reminder since
+ * nothing here guarantees cross-call consistency on its own — the model only has the text prompt to
+ * go on for each separate call. */
+const TURNAROUND_ANGLES: { label: string; instruction: string }[] = [
+  { label: "Front", instruction: "front view, facing directly toward camera" },
+  { label: "Back", instruction: "back view, facing directly away from camera" },
+  { label: "Left", instruction: "left side profile view" },
+  { label: "Right", instruction: "right side profile view" },
+];
 
 /** Lets a Cast & Props entry design its own reference image directly — a prompt, a choice of image
  * model, real or mock rendering — instead of requiring a detour through Image Studio and back. Also
@@ -28,7 +42,8 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
   const [hasConnectedProvider, setHasConnectedProvider] = useState(false);
   const [models, setModels] = useState<RegisteredModel[]>([]);
   const [modelId, setModelId] = useState("");
-  const [busy, setBusy] = useState<"generate" | "import" | null>(null);
+  const [busy, setBusy] = useState<"generate" | "import" | "turnaround" | null>(null);
+  const [turnaroundProgress, setTurnaroundProgress] = useState<{ step: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,37 +58,73 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
     if (styleSheet.trim()) setPrompt(`${styleSheet.trim()}, ${KIND_HINT[kind]}`);
   }, [styleSheet, kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** One generation call, resolved down to "did a new image asset land." Shared by the single
+   * Generate button and the Turnaround loop below so both stay byte-for-byte consistent with
+   * exactly what Image Studio's own generation call shape looks like. */
+  const generateOne = async (promptText: string): Promise<boolean> => {
+    const ok = await generateImage(
+      {
+        weather: "Clear",
+        timeOfDay: "Day",
+        lighting: "Natural",
+        season: "Any",
+        mood: "",
+        customInstruction: "",
+        variantStrength: 0.6,
+        aspectRatio: "1:1",
+        styleStack: defaultStyleStack(),
+        rawPromptOverride: promptText,
+      },
+      undefined,
+      useReal,
+      modelId || undefined,
+    );
+    if (!ok) return false;
+    const assets = useAppStore.getState().project?.assets ?? [];
+    const newest = [...assets].reverse().find((asset) => asset.type === "image");
+    if (newest) onAdded(newest.id);
+    return Boolean(newest);
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     setBusy("generate");
     setError(null);
     try {
-      const ok = await generateImage(
-        {
-          weather: "Clear",
-          timeOfDay: "Day",
-          lighting: "Natural",
-          season: "Any",
-          mood: "",
-          customInstruction: "",
-          variantStrength: 0.6,
-          aspectRatio: "1:1",
-          styleStack: defaultStyleStack(),
-          rawPromptOverride: prompt.trim(),
-        },
-        undefined,
-        useReal,
-        modelId || undefined,
-      );
-      if (ok) {
-        const assets = useAppStore.getState().project?.assets ?? [];
-        const newest = [...assets].reverse().find((asset) => asset.type === "image");
-        if (newest) onAdded(newest.id);
-      }
+      await generateOne(prompt.trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
+    }
+  };
+
+  /** Fires one generation per turnaround angle, sequentially (not in parallel) — each call reads
+   * the "newest image asset" off the end of project.assets right after it resolves, so overlapping
+   * calls could race and grab the wrong one; sequencing avoids that entirely at the cost of some
+   * wall-clock time, which is the right trade for a background reference-building action. Keeps
+   * going even if one angle fails, rather than aborting the whole set over a single bad call. */
+  const handleTurnaround = async () => {
+    if (!prompt.trim()) return;
+    setBusy("turnaround");
+    setError(null);
+    const base = prompt.trim();
+    let failures = 0;
+    try {
+      for (const [index, angle] of TURNAROUND_ANGLES.entries()) {
+        setTurnaroundProgress({ step: index + 1, total: TURNAROUND_ANGLES.length });
+        try {
+          const ok = await generateOne(`${base}, ${angle.instruction}, identical subject and design as the other turnaround views`);
+          if (!ok) failures += 1;
+        } catch {
+          failures += 1;
+        }
+      }
+      if (failures === TURNAROUND_ANGLES.length) setError("Turnaround generation failed for every angle.");
+      else if (failures > 0) setError(`${failures} of ${TURNAROUND_ANGLES.length} turnaround angles failed — the rest were added.`);
+    } finally {
+      setBusy(null);
+      setTurnaroundProgress(null);
     }
   };
 
@@ -143,6 +194,16 @@ export function EntityReferenceGenerator({ kind, styleSheet, onAdded }: { kind: 
           className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-md bg-accent-500 hover:bg-accent-400 disabled:opacity-50 text-accentText font-medium transition ml-auto"
         >
           {busy === "generate" ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} Generate
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleTurnaround()}
+          disabled={!prompt.trim() || busy !== null}
+          title="Generate front, back, left, and right reference views in one go"
+          className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-md border border-accent-500/50 text-accent-400 hover:bg-accent-500/10 disabled:opacity-50 transition"
+        >
+          {busy === "turnaround" ? <Loader2 size={11} className="animate-spin" /> : <RotateCw size={11} />}
+          {busy === "turnaround" && turnaroundProgress ? `Turnaround ${turnaroundProgress.step}/${turnaroundProgress.total}…` : "Turnaround"}
         </button>
         <button
           type="button"

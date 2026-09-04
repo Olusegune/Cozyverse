@@ -6,7 +6,8 @@ import * as api from "../lib/api";
 import type { TimelineShotRenderInput } from "../lib/api";
 import { RenderErrorMessage } from "../components/RenderErrorMessage";
 import { Slider } from "../components/Slider";
-import type { Scene } from "../types";
+import { ReelContinuityCheck } from "../components/ReelContinuityCheck";
+import { projectCharacters, type Scene } from "../types";
 
 export function StoryboardPage() {
   const project = useAppStore((state) => state.project);
@@ -45,6 +46,17 @@ export function StoryboardPage() {
     }
     return pickBackgroundForControls(project.assets, project.generations, { weather: controls.weather, timeOfDay: controls.timeOfDay, lighting: controls.lighting }, scene.backgroundAssetId);
   };
+
+  // Each timeline shot's scene, resolved down to "what prompt actually produced its background" —
+  // the input the reel-wide continuity check compares across scenes. A scene with no background yet
+  // (or one imported rather than generated, with no generationId to trace back to) simply
+  // contributes an empty prompt, which the check itself filters out rather than guessing at one.
+  const reelScenes = project.timeline.map((shot) => {
+    const scene = project.scenes.find((existing) => existing.id === shot.sceneId);
+    const background = sceneBackground(scene);
+    const generation = background?.generationId ? project.generations.find((job) => job.id === background.generationId) : undefined;
+    return { sceneName: scene?.name || "Deleted scene", prompt: generation?.prompt || "" };
+  });
 
   const handleRender = async () => {
     if (!dirName || project.timeline.length === 0) return;
@@ -215,6 +227,8 @@ export function StoryboardPage() {
                   </>
                 )}
               </div>
+
+              <ReelContinuityCheck scenes={reelScenes} characters={projectCharacters(project)} worldBible={project.worldBible} />
             </div>
           </div>
 
