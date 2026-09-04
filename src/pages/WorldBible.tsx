@@ -1,10 +1,12 @@
 ﻿import { useEffect, useState } from "react";
-import { FileText, Loader2, Sparkles, X } from "lucide-react";
+import { FileText, Loader2, Sparkles, Users, X } from "lucide-react";
 import type { WorldBible } from "../types";
+import { entityKind, ENTITY_KIND_LABELS, projectCharacters } from "../types";
 import { useAppStore } from "../store/useAppStore";
 import { connectedProviders } from "../lib/providers/realGeneration";
 import * as api from "../lib/api";
 import { buildExtractionPrompt, parseExtractedWorldBible } from "../lib/worldBibleImport";
+import { WorldBibleConsistencyCheck } from "../components/WorldBibleConsistencyCheck";
 
 const FIELDS: Array<{ key: keyof WorldBible; label: string; multiline?: boolean }> = [
   { key: "name", label: "Name" },
@@ -25,6 +27,29 @@ const FIELDS: Array<{ key: keyof WorldBible; label: string; multiline?: boolean 
 ];
 
 const FIELD_LABELS: Partial<Record<keyof WorldBible, string>> = Object.fromEntries(FIELDS.map(({ key, label }) => [key, label]));
+
+/** Named characters, props, vehicles, and sets live in Cast & Props now, not this free-text field —
+ * shown right above it so the two never quietly drift apart from having no visibility into each
+ * other. This field is reframed (via its own placeholder text below) as a place for general cast
+ * notes and extras, not the authoritative description of anyone with their own Cast & Props entry. */
+function CastPropsSummary() {
+  const project = useAppStore((state) => state.project);
+  if (!project) return null;
+  const entities = projectCharacters(project);
+  if (entities.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+      <span className="flex items-center gap-1 text-[11px] text-slate-500">
+        <Users size={11} /> Already in Cast &amp; Props:
+      </span>
+      {entities.map((entity) => (
+        <span key={entity.id} title={ENTITY_KIND_LABELS[entityKind(entity)]} className="text-[11px] px-2 py-0.5 rounded-full border border-base-600 text-slate-300">
+          {entity.name}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export function WorldBiblePage() {
   const project = useAppStore((state) => state.project);
@@ -68,11 +93,15 @@ export function WorldBiblePage() {
         {FIELDS.map(({ key, label, multiline }) => (
           <div key={key} className={multiline ? "sm:col-span-2" : ""}>
             <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">{label}</label>
+            {key === "characters" && (
+              <CastPropsSummary />
+            )}
             {multiline ? (
               <textarea
                 rows={3}
                 value={(bible[key] as string) || ""}
                 onChange={(event) => updateWorldBible({ [key]: event.target.value } as Partial<WorldBible>)}
+                placeholder={key === "characters" ? "General cast notes, extras, or anyone not worth defining as a full Cast & Props entity yet…" : undefined}
                 className="w-full bg-base-900 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
               />
             ) : (
@@ -81,6 +110,11 @@ export function WorldBiblePage() {
                 onChange={(event) => updateWorldBible({ [key]: event.target.value } as Partial<WorldBible>)}
                 className="w-full bg-base-900 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500"
               />
+            )}
+            {key === "characters" && (bible.characters || "").trim() && (
+              <div className="mt-2">
+                <WorldBibleConsistencyCheck characterNotes={bible.characters} />
+              </div>
             )}
           </div>
         ))}

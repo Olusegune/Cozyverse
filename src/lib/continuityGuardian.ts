@@ -100,6 +100,45 @@ export async function checkReelContinuity(
   return parseContinuityIssues(raw).map((issue) => ({ ...issue, suggestedAddition: "" }));
 }
 
+/** Builds the system prompt for the World Bible ↔ Cast & Props consistency check — the one place
+ * this app has TWO descriptions of "who's in this world" that don't otherwise know about each
+ * other: the World Bible's free-text "Characters" field (prose, predates Cast & Props, still
+ * useful for background/extras) and each Cast & Props entity's own structured style sheet. Nothing
+ * keeps them in sync automatically, so this specifically hunts for the same named character/prop/
+ * vehicle/set being described differently in the two places — not for anything else. */
+function buildWorldBibleConsistencySystemPrompt(entities: Character[]): string {
+  const lines: string[] = [
+    "You are a continuity checker for a creative tool called Cozyverse Studio. This project describes its cast in two separate places that don't automatically stay in sync: a free-text \"World Bible\" characters note, and a list of structured Cast & Props entities, each with its own style sheet. Your only job is to find places where the SAME named character, prop, vehicle, or set is described differently between the two — not to critique either one, not to flag someone who only appears in one place.",
+    "Structured Cast & Props entities:",
+  ];
+  for (const entity of entities) lines.push(`- ${entity.name} (${ENTITY_KIND_LABELS[entityKind(entity)].toLowerCase()}): ${entity.styleSheet.trim()}`);
+  lines.push(
+    "For each real contradiction found between the World Bible text below and one of the entities above, output one line in this exact format:",
+    "ISSUE: <name who it's about and the specific contradiction, one short sentence>",
+    "If there are no real contradictions, output exactly: OK",
+    "Do not flag someone mentioned in only one place — that's normal, not a contradiction. Only flag it when both sources actively describe the same named thing differently. Output nothing else — no preamble, no explanation.",
+  );
+  return lines.join("\n");
+}
+
+/** Runs the World Bible ↔ Cast & Props consistency check via the local Ollama model — see
+ * buildWorldBibleConsistencySystemPrompt. Silent-empty under the same conditions as the other
+ * checks here: no Ollama configured, no free-text notes to compare, or no Cast & Props entities
+ * with a style sheet yet to compare against. */
+export async function checkWorldBibleConsistency(
+  ollamaGenerate: (serverUrl: string, model: string, system: string, prompt: string) => Promise<string>,
+  ollamaSettings: { serverUrl: string; model: string },
+  characterNotes: string,
+  entities: Character[],
+): Promise<ContinuityIssue[]> {
+  const sheets = entities.filter((entity) => entity.styleSheet.trim());
+  if (!ollamaSettings.model || !characterNotes.trim() || sheets.length === 0) return [];
+
+  const system = buildWorldBibleConsistencySystemPrompt(sheets);
+  const raw = await ollamaGenerate(ollamaSettings.serverUrl, ollamaSettings.model, system, characterNotes.trim());
+  return parseContinuityIssues(raw).map((issue) => ({ ...issue, suggestedAddition: "" }));
+}
+
 /** Runs a continuity check via the local Ollama model. Returns an empty array (not an error) when
  * Ollama isn't configured or unreachable — this is a soft, best-effort assist, never a blocker on
  * generation, so callers should treat a thrown error the same as "nothing to flag" and stay silent
