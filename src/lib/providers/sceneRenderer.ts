@@ -104,6 +104,59 @@ export function drawWeather(ctx: CanvasRenderingContext2D, weather: string, widt
   }
 }
 
+const LABEL_PALETTE = ["#e0575b", "#e0a63e", "#4fae74", "#3ea0d9", "#8b7bf6", "#d9578f", "#5bbfae", "#c98a3e"];
+
+/** Picks a short, at-a-glance label for a mock render so otherwise-identical placeholder art
+ * (same skyline shape, same generic scene) can still be told apart in a small thumbnail grid —
+ * a real gap we hit doing QA on Cast & Props turnarounds, where every angle rendered as the same
+ * generic skyline. Turnaround angle suffixes get their own short word; anything else falls back to
+ * the prompt's first few meaningful words. */
+export function deriveDistinguishingLabel(prompt: string): string {
+  const text = prompt.trim();
+  const lower = text.toLowerCase();
+  if (/front view|facing directly toward/.test(lower)) return "FRONT";
+  if (/back view|facing directly away/.test(lower)) return "BACK";
+  if (/left side profile/.test(lower)) return "LEFT";
+  if (/right side profile/.test(lower)) return "RIGHT";
+  if (!text) return "UNTITLED";
+  const firstClause = text.split(/[,.\n]/)[0].trim();
+  const words = firstClause.split(/\s+/).filter(Boolean).slice(0, 3);
+  return (words.join(" ") || text.slice(0, 24)).toUpperCase();
+}
+
+/** A deterministic accent color for a given seed, from a fixed palette spaced for contrast against
+ * each other — used so the label badge (and, by extension, the thumbnail as a whole) reads as a
+ * distinct color at a glance, not just distinct text. */
+export function pickAccentColor(seed: number): string {
+  return LABEL_PALETTE[seed % LABEL_PALETTE.length];
+}
+
+/** Draws a bold, high-contrast label band across the vertical center of the canvas — positioned so
+ * it survives a center-weighted `object-cover` crop into a square thumbnail, and sized to shrink
+ * automatically until the label fits. This is the primary way a mock-rendered image reads as
+ * distinct from another at 40px, where the bottom prompt strip is illegible. */
+export function drawLabelBadge(ctx: CanvasRenderingContext2D, width: number, height: number, label: string, color: string) {
+  const bandHeight = height * 0.22;
+  const bandY = height * 0.5 - bandHeight / 2;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.88;
+  ctx.fillRect(0, bandY, width, bandHeight);
+  ctx.globalAlpha = 1;
+
+  let fontSize = 64;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#ffffff";
+  const maxWidth = width * 0.6; // stays inside the center-crop-safe region even on a square thumbnail
+  do {
+    ctx.font = `700 ${fontSize}px sans-serif`;
+    fontSize -= 4;
+  } while (ctx.measureText(label).width > maxWidth && fontSize > 20);
+  ctx.fillText(label, width / 2, bandY + bandHeight / 2);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+}
+
 export function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines: number) {
   const words = text.split(/\s+/);
   let line = "";

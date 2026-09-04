@@ -1,6 +1,6 @@
 import type { GenerationIntent } from "../continuity";
 import type { VideoGenerationOptions, VideoGenerationResult, VideoProvider } from "./types";
-import { buildSkyline, drawSky, drawSkyline, drawWeather, hashString, makeRandom, wrapText } from "./sceneRenderer";
+import { buildSkyline, deriveDistinguishingLabel, drawLabelBadge, drawSky, drawSkyline, drawWeather, hashString, makeRandom, pickAccentColor, wrapText } from "./sceneRenderer";
 import { blobToDataUrl } from "./mediaEncoding";
 
 function pickMimeType(): string {
@@ -32,6 +32,8 @@ export const mockVideoProvider: VideoProvider = {
     const palette = settings.colorPalette?.length ? settings.colorPalette : ["#8b7bf6", "#2a2a3d", "#f6a35b"];
     const buildings = buildSkyline(seed, width + 240, height);
     const durationMs = Math.max(1, options.durationSeconds) * 1000;
+    const label = deriveDistinguishingLabel(settings.motionDescription || intent.prompt || "");
+    const accentColor = pickAccentColor(seed);
 
     const stream = canvas.captureStream(30);
     const mimeType = pickMimeType();
@@ -60,6 +62,7 @@ export const mockVideoProvider: VideoProvider = {
       drawSky(ctx, width, height, settings.timeOfDay || "day");
       drawSkyline(ctx, buildings, palette, width, height, panOffset);
       drawWeather(ctx, settings.weather || "", width, height, random, t);
+      drawLabelBadge(ctx, width, height, label, accentColor);
 
       ctx.fillStyle = "rgba(0,0,0,0.35)";
       ctx.fillRect(0, height - 78, width, 78);
