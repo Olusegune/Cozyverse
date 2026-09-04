@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Expand, Plus, Trash2, User, Package, Car, Layers, X } from "lucide-react";
+import { Expand, Plus, Star, Trash2, User, Package, Car, Layers, X } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { EntityReferenceGenerator } from "../components/EntityReferenceGenerator";
 import { DesignSheetExport } from "../components/DesignSheetExport";
@@ -107,7 +107,16 @@ export function CharactersPage() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {group.map((entity) => {
-                    const references = imageAssets.filter((asset) => entity.referenceAssetIds.includes(asset.id));
+                    // Ordered by entity.referenceAssetIds, NOT by imageAssets' own order — the
+                    // first entry here is what the rest of the app already treats as "primary"
+                    // (Style Stack inheritance, @mention token lookup, Shot Mode auto-attach all
+                    // read referenceAssetIds[0]) — the grid needs to actually show that same order,
+                    // not whatever order the assets happen to sit in project-wide.
+                    const references = entity.referenceAssetIds
+                      .map((id) => imageAssets.find((asset) => asset.id === id))
+                      .filter((asset): asset is (typeof imageAssets)[number] => Boolean(asset));
+                    const makePrimary = (assetId: string) =>
+                      void updateCharacter(entity.id, { referenceAssetIds: [assetId, ...entity.referenceAssetIds.filter((id) => id !== assetId)] });
                     return (
                       <div key={entity.id} className="rounded-xl border border-base-700 bg-base-900 p-4 space-y-3">
                         <div className="flex items-center justify-between gap-2">
@@ -151,30 +160,51 @@ export function CharactersPage() {
                             <p className="text-[11px] text-slate-500">No reference image yet — pick one so shots can attach it automatically.</p>
                           ) : (
                             <div className="grid grid-cols-5 gap-1.5">
-                              {references.map((asset) => (
-                                <div key={asset.id} className="group relative aspect-square rounded-md overflow-hidden border border-accent-500/50">
-                                  <button type="button" onClick={() => setLightboxAsset(asset)} className="block w-full h-full">
-                                    <img src={assetUrl(asset)} alt="" className="w-full h-full object-cover" />
-                                  </button>
-                                  {pickingRefsFor === entity.id ? (
-                                    <button
-                                      onClick={() => void toggleCharacterReference(entity.id, asset.id)}
-                                      className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 hover:opacity-100 transition"
-                                      title="Remove this reference"
-                                    >
-                                      <X size={14} className="text-white" />
+                              {references.map((asset, index) => {
+                                const isPrimary = index === 0;
+                                return (
+                                  <div
+                                    key={asset.id}
+                                    className={`group relative aspect-square rounded-md overflow-hidden border ${isPrimary ? "border-accent-500" : "border-accent-500/50"}`}
+                                  >
+                                    <button type="button" onClick={() => setLightboxAsset(asset)} className="block w-full h-full">
+                                      <img src={assetUrl(asset)} alt="" className="w-full h-full object-cover" />
                                     </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => setLightboxAsset(asset)}
-                                      className="absolute bottom-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition"
-                                      title="View full size"
-                                    >
-                                      <Expand size={11} />
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
+                                    {isPrimary && (
+                                      <span
+                                        title="Primary reference — used automatically when a model only supports one, and for the Style Stack inheritance/@mention lookups"
+                                        className="absolute top-1 left-1 flex items-center gap-0.5 bg-accent-500 text-accentText text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                                      >
+                                        <Star size={9} fill="currentColor" /> Primary
+                                      </span>
+                                    )}
+                                    {pickingRefsFor === entity.id ? (
+                                      <button
+                                        onClick={() => void toggleCharacterReference(entity.id, asset.id)}
+                                        className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 hover:opacity-100 transition"
+                                        title="Remove this reference"
+                                      >
+                                        <X size={14} className="text-white" />
+                                      </button>
+                                    ) : (
+                                      <div className="absolute bottom-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                                        {!isPrimary && (
+                                          <button
+                                            onClick={() => makePrimary(asset.id)}
+                                            className="p-1 rounded-md bg-black/60 hover:bg-black/80 text-white"
+                                            title="Make this the primary reference"
+                                          >
+                                            <Star size={11} />
+                                          </button>
+                                        )}
+                                        <button onClick={() => setLightboxAsset(asset)} className="p-1 rounded-md bg-black/60 hover:bg-black/80 text-white" title="View full size">
+                                          <Expand size={11} />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                           {pickingRefsFor === entity.id && (
