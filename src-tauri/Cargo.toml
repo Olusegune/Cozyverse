@@ -1,6 +1,6 @@
 [package]
 name = "cozyverse-studio"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cozyverse Studio — local-first Cozyverse creator"
 authors = ["Wheelbarrow Studios"]
 edition = "2021"
