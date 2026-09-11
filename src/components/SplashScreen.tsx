@@ -33,11 +33,11 @@ export function SplashScreen({ onDismiss, onOpenHelp }: { onDismiss: () => void;
       className={`fixed inset-0 z-[100] bg-base-950/95 flex items-center justify-center p-4 sm:p-6 transition-opacity duration-300 ${closing ? "opacity-0" : "opacity-100"}`}
       onClick={dismiss}
     >
-      <div className="relative max-w-5xl w-full">
+      <div className="relative max-w-7xl w-full">
         <img
           src={`/splash/${variant}.png`}
           alt="Cozyverse Studio"
-          className="w-full h-auto max-h-[90vh] object-contain rounded-2xl border border-white/10 shadow-2xl"
+          className="w-full h-auto max-h-[88vh] object-contain rounded-2xl border border-white/10 shadow-2xl"
         />
         <button
           onClick={(event) => {
