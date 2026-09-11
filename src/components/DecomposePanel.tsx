@@ -690,6 +690,7 @@ function JobCard({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [turn, setTurn] = useState<{ done: number; total: number } | null>(null);
+  const [turnErr, setTurnErr] = useState<string | null>(null);
   const { done, total } = jobProgress(job);
 
   const runTurnaround = async () => {
@@ -697,6 +698,7 @@ function JobCard({
     const objs = job.assets.filter((a) => a.models.some((m) => m.glbPath));
     if (objs.length === 0) return;
     setTurn({ done: 0, total: objs.length });
+    setTurnErr(null);
     try {
       const { createTurnaroundRig } = await import("../lib/turnaround");
       const rig = createTurnaroundRig(1024);
@@ -725,9 +727,14 @@ function JobCard({
       } finally {
         rig.dispose();
       }
-      if (frames.length) await exportTurnaround(dirName, job.id, frames);
+      if (frames.length === 0) {
+        throw new Error("No views could be rendered — every object's model failed to load.");
+      }
+      await exportTurnaround(dirName, job.id, frames);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("turnaround render failed", e);
+      setTurnErr(msg);
     } finally {
       setTurn(null);
     }
@@ -1044,6 +1051,7 @@ function JobCard({
               <RotateCw size={12} className={turn ? "animate-spin" : ""} />
               {turn ? `Rendering ${turn.done}/${turn.total}…` : "Turnaround (.zip)"}
             </button>
+            {turnErr && <p className="w-full text-[11px] text-red-400">{turnErr}</p>}
             {job.status === "done" && (
               <button
                 onClick={() => void runCombine()}
