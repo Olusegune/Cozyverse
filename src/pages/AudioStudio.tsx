@@ -7,6 +7,7 @@ import { MUSIC_GENRE_PRESETS, musicGenreById } from "../lib/musicalCozies";
 import { modelById, type RegisteredModel } from "../lib/providers/modelRegistry";
 import type { Asset, AssetType } from "../types";
 import * as api from "../lib/api";
+import { useRenderModePref } from "../lib/preferences";
 import { Slider } from "../components/Slider";
 
 const MUSIC_MODEL_IDS = ["suno/v5", "cassetteai/music-generator"];
@@ -41,7 +42,7 @@ export function AudioStudioPage() {
   const [hasConnectedProvider, setHasConnectedProvider] = useState(false);
   const [hasFalProvider, setHasFalProvider] = useState(false);
   const [hasKieProvider, setHasKieProvider] = useState(false);
-  const [useReal, setUseReal] = useState(false);
+  const [useReal, setUseReal] = useRenderModePref();
   const [modelOverrideId, setModelOverrideId] = useState("");
   const [audioModels, setAudioModels] = useState<RegisteredModel[]>([]);
 

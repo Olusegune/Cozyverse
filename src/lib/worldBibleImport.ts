@@ -20,6 +20,25 @@ const TEXT_FIELDS: Array<keyof WorldBible> = [
   "additionalNotes",
 ];
 
+/** Drafts a full World Bible from a one-line idea. Unlike extraction (which must
+ * never invent beyond the source), this is explicitly asked to invent rich,
+ * specific, cohesive detail — the point is to turn "a rainy Tokyo noodle shop"
+ * into a usable starting point in one shot, editable after. */
+export function buildDraftPrompt(oneLiner: string, existingName?: string): string {
+  return [
+    "You are drafting a complete, vivid \"World Bible\" for a Cozyverse Studio project from a one-line idea.",
+    "Invent specific, cohesive, evocative detail — colors, materials, small objects, a sense of mood and light.",
+    "Don't hedge or stay generic; commit to concrete choices a visual artist could draw from immediately.",
+    "Return ONLY a single raw JSON object — no markdown code fences, no commentary before or after it.",
+    `The JSON object must have exactly these string keys: ${TEXT_FIELDS.join(", ")}.`,
+    'It must also have a "colorPalette" key: an array of 3-6 hex color strings like "#8b7bf6" that capture the palette you invented.',
+    existingName ? `The project is already named "${existingName}" — keep that as the "name" field unless the idea clearly implies a better one.` : "",
+    "Every field should be filled in with something concrete — none should be left empty unless truly not applicable (e.g. \"characters\" can be an empty string for an empty scene).",
+    "--- ONE-LINE IDEA ---",
+    oneLiner,
+  ].filter(Boolean).join("\n");
+}
+
 export function buildExtractionPrompt(sourceText: string): string {
   return [
     "You are extracting structured fields for a Cozyverse Studio \"World Bible\" from the source document below.",

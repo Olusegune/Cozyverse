@@ -1,10 +1,10 @@
 ﻿import { useEffect, useState } from "react";
-import { FileText, Loader2, Sparkles, X } from "lucide-react";
+import { FileText, Loader2, Sparkles, Wand2, X } from "lucide-react";
 import type { WorldBible } from "../types";
 import { useAppStore } from "../store/useAppStore";
 import { connectedProviders } from "../lib/providers/realGeneration";
 import * as api from "../lib/api";
-import { buildExtractionPrompt, parseExtractedWorldBible } from "../lib/worldBibleImport";
+import { buildDraftPrompt, buildExtractionPrompt, parseExtractedWorldBible } from "../lib/worldBibleImport";
 
 const FIELDS: Array<{ key: keyof WorldBible; label: string; multiline?: boolean }> = [
   { key: "name", label: "Name" },
@@ -33,6 +33,7 @@ export function WorldBiblePage() {
 
   const [hasGemini, setHasGemini] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [draftOpen, setDraftOpen] = useState(false);
 
   useEffect(() => {
     void connectedProviders().then((set) => setHasGemini(set.has("gemini")));
@@ -40,6 +41,7 @@ export function WorldBiblePage() {
 
   if (!project) return null;
   const bible = project.worldBible;
+  const isBlank = !bible.shortConcept?.trim() && !bible.description?.trim();
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -50,6 +52,14 @@ export function WorldBiblePage() {
           <p className="text-sm text-slate-400 mt-1">Define your Cozyverse's identity. This drives consistent results across all media.</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            disabled={!hasGemini}
+            title={hasGemini ? undefined : "Add a Gemini API key in Settings to draft or import"}
+            onClick={() => setDraftOpen(true)}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-accent-500 hover:bg-accent-400 text-accentText disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Wand2 size={13} /> Draft with AI
+          </button>
           <button
             disabled={!hasGemini}
             title={hasGemini ? undefined : "Add a Gemini API key in Settings to import from text"}
@@ -63,6 +73,23 @@ export function WorldBiblePage() {
           </span>
         </div>
       </div>
+
+      {isBlank && hasGemini && (
+        <button
+          onClick={() => setDraftOpen(true)}
+          className="mb-6 w-full flex items-center gap-4 rounded-xl border border-dashed border-accent-500/40 bg-accent-500/5 hover:bg-accent-500/10 hover:border-accent-500/70 p-5 text-left transition"
+        >
+          <span className="flex items-center justify-center w-11 h-11 rounded-full bg-accent-500/15 shrink-0">
+            <Sparkles size={20} className="text-accent-400" />
+          </span>
+          <span>
+            <span className="block text-sm font-medium text-white">Describe your world in one line — I'll draft the rest</span>
+            <span className="block text-xs text-slate-400 mt-0.5">
+              "A rainy Tokyo noodle shop at midnight" is enough. Every field below is yours to edit after.
+            </span>
+          </span>
+        </button>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         {FIELDS.map(({ key, label, multiline }) => (
@@ -121,6 +148,138 @@ export function WorldBiblePage() {
           }}
         />
       )}
+      {draftOpen && (
+        <DraftWorldModal
+          bible={bible}
+          onClose={() => setDraftOpen(false)}
+          onApply={(patch) => {
+            updateWorldBible(patch);
+            setDraftOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The golden-path entry point: turn one sentence into a full, editable World
+ * Bible. Same extraction/review machinery as ImportFromTextModal, but the
+ * model is explicitly asked to invent rich detail rather than only pull out
+ * what's already stated. */
+function DraftWorldModal({ bible, onClose, onApply }: { bible: WorldBible; onClose: () => void; onApply: (patch: Partial<WorldBible>) => void }) {
+  const [step, setStep] = useState<"prompt" | "review">("prompt");
+  const [oneLiner, setOneLiner] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [proposed, setProposed] = useState<Partial<WorldBible>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const draft = async () => {
+    if (!oneLiner.trim()) return;
+    setDrafting(true);
+    setError(null);
+    try {
+      const raw = await api.geminiGenerateText(buildDraftPrompt(oneLiner, bible.name));
+      const extracted = parseExtractedWorldBible(raw);
+      setProposed(extracted);
+      setSelected(new Set(Object.keys(extracted)));
+      setStep("review");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  const toggle = (key: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const apply = () => {
+    const patch: Partial<WorldBible> = {};
+    for (const key of Object.keys(proposed) as Array<keyof WorldBible>) {
+      if (selected.has(key)) (patch as Record<string, unknown>)[key] = proposed[key];
+    }
+    onApply(patch);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-8" onClick={onClose}>
+      <div className="bg-base-900 border border-base-700 rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-base-700">
+          <h2 className="text-sm font-medium text-white flex items-center gap-2">
+            <Wand2 size={15} className="text-accent-400" /> Draft World Bible with AI
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-white">
+            <X size={16} />
+          </button>
+        </div>
+
+        {step === "prompt" ? (
+          <div className="p-5 space-y-3 overflow-y-auto">
+            <p className="text-xs text-slate-400">
+              One sentence is enough — Gemini invents a full, cohesive world from it. Review and edit everything
+              on the next step before anything is applied.
+            </p>
+            <input
+              autoFocus
+              value={oneLiner}
+              onChange={(event) => setOneLiner(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void draft();
+              }}
+              placeholder="e.g. A rainy Tokyo noodle shop at midnight, retro-futuristic and warm"
+              className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2.5 text-sm text-white outline-none focus:border-accent-500"
+            />
+            {error && <p className="text-xs text-red-400 whitespace-pre-wrap">{error}</p>}
+            <button
+              disabled={drafting || !oneLiner.trim()}
+              onClick={() => void draft()}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-accent-500 hover:bg-accent-400 disabled:opacity-50 disabled:cursor-not-allowed text-accentText px-4 py-2.5 text-sm font-medium transition"
+            >
+              {drafting ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />} {drafting ? "Drafting…" : "Draft the World Bible"}
+            </button>
+          </div>
+        ) : (
+          <div className="p-5 overflow-y-auto space-y-3">
+            <p className="text-xs text-slate-400 mb-2">Review each field before applying. Unchecked fields are left as-is.</p>
+            {Object.keys(proposed).length === 0 && <p className="text-xs text-slate-500">Nothing came back — try a more specific line.</p>}
+            {(Object.keys(proposed) as Array<keyof WorldBible>).map((key) => {
+              const newValue = proposed[key];
+              const displayNew = Array.isArray(newValue) ? newValue.join(", ") : String(newValue ?? "");
+              return (
+                <label key={key} className="flex items-start gap-3 rounded-lg border border-base-700 p-3 cursor-pointer">
+                  <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} className="mt-1" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-slate-300 mb-1">{FIELD_LABELS[key] || key}</p>
+                    <p className="text-xs text-white break-words">{displayNew || "(empty)"}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {step === "review" && (
+          <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-base-700">
+            <button onClick={() => setStep("prompt")} className="text-xs px-3 py-1.5 rounded-md border border-base-600 text-slate-300 hover:text-white">
+              Back
+            </button>
+            <button
+              disabled={selected.size === 0}
+              onClick={apply}
+              className="text-xs px-4 py-1.5 rounded-md bg-accent-500 hover:bg-accent-400 disabled:opacity-50 disabled:cursor-not-allowed text-accentText"
+            >
+              Apply {selected.size} field{selected.size === 1 ? "" : "s"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

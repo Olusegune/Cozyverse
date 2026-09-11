@@ -3,6 +3,7 @@ import { Clapperboard, Download, Film, Sparkles, Trash2, Volume2, Wand2 } from "
 import { useAppStore } from "../store/useAppStore";
 import { connectedModelsFor, connectedProviders, connectedVideoModelsForShotMode } from "../lib/providers/realGeneration";
 import { Slider } from "../components/Slider";
+import { useRenderModePref } from "../lib/preferences";
 import * as api from "../lib/api";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 
@@ -25,7 +26,7 @@ export function MotionStudioPage() {
   const [motionDescription, setMotionDescription] = useState("");
   const [durationSeconds, setDurationSeconds] = useState(3);
   const [loop, setLoop] = useState(true);
-  const [useReal, setUseReal] = useState(false);
+  const [useReal, setUseReal] = useRenderModePref();
   const [hasConnectedProvider, setHasConnectedProvider] = useState(false);
   const [modelOverrideId, setModelOverrideId] = useState("");
   const [connectedModels, setConnectedModels] = useState<RegisteredModel[]>([]);

@@ -1,11 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { BookOpen, Clapperboard, Film, FolderOpen, HelpCircle, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo } from "lucide-react";
+import { BookOpen, Boxes, Clapperboard, Film, FolderOpen, HelpCircle, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo } from "lucide-react";
 import { useAppStore } from "./store/useAppStore";
 import { ProjectsDashboard } from "./pages/ProjectsDashboard";
 import { WorldBiblePage } from "./pages/WorldBible";
 import { ImageStudioPage } from "./pages/ImageStudio";
 import { AssetLibraryPage } from "./pages/AssetLibrary";
+import { Assets3DPage } from "./pages/Assets3D";
 import { MotionStudioPage } from "./pages/MotionStudio";
 import { AudioStudioPage } from "./pages/AudioStudio";
 import { SceneComposerPage } from "./pages/SceneComposer";
@@ -18,8 +19,9 @@ import { SplashScreen } from "./components/SplashScreen";
 import { AboutDialog } from "./components/AboutDialog";
 import { HelpDialog } from "./components/HelpDialog";
 import { QueuePanel } from "./components/QueuePanel";
+import { ProviderBalanceTicker } from "./components/ProviderBalanceTicker";
 
-type View = "projects" | "world" | "create" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
+type View = "projects" | "world" | "create" | "decompose3d" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
 
 export function App() {
   const { project, dirName, closeProject, saveNow } = useAppStore();
@@ -60,19 +62,24 @@ export function App() {
     );
   }
 
-  // Each item gets its own chip color — a deliberate multi-color treatment (like a real icon set,
-  // not one accent tint repeated) rather than every icon sharing the same muted gray/accent color.
-  const nav: Array<{ key: View; label: string; icon: React.ElementType; chip: string; iconColor: string }> = [
-    { key: "projects", label: "Projects", icon: FolderOpen, chip: "bg-slate-500/20", iconColor: "text-slate-300" },
-    { key: "world", label: "World Bible", icon: BookOpen, chip: "bg-violet-500/20", iconColor: "text-violet-400" },
-    { key: "create", label: "Image Studio", icon: Wand2, chip: "bg-accent-500/20", iconColor: "text-accent-400" },
-    { key: "motion", label: "Motion Studio", icon: Film, chip: "bg-sky-500/20", iconColor: "text-sky-400" },
-    { key: "audio", label: "Audio Studio", icon: Volume2, chip: "bg-emerald-500/20", iconColor: "text-emerald-400" },
-    { key: "scene", label: "Scene Composer", icon: Clapperboard, chip: "bg-rose-500/20", iconColor: "text-rose-400" },
-    { key: "storyboard", label: "Storyboard", icon: ListVideo, chip: "bg-fuchsia-500/20", iconColor: "text-fuchsia-400" },
+  // The numbered "flow" is the actual golden path — fill the world in, make an
+  // image, optionally turn pieces of it into 3D, then motion/audio/scene/board it
+  // into something exportable. Each item gets its own chip color (a deliberate
+  // multi-color treatment, like a real icon set) rather than one accent tint
+  // repeated ten times.
+  const flow: Array<{ key: View; step: number; label: string; icon: React.ElementType; chip: string; iconColor: string; optional?: boolean }> = [
+    { key: "world", step: 1, label: "World Bible", icon: BookOpen, chip: "bg-violet-500/20", iconColor: "text-violet-400" },
+    { key: "create", step: 2, label: "Image Studio", icon: Wand2, chip: "bg-accent-500/20", iconColor: "text-accent-400" },
+    { key: "decompose3d", step: 3, label: "3D & Assets", icon: Boxes, chip: "bg-teal-500/20", iconColor: "text-teal-400", optional: true },
+    { key: "motion", step: 4, label: "Motion Studio", icon: Film, chip: "bg-sky-500/20", iconColor: "text-sky-400" },
+    { key: "audio", step: 5, label: "Audio Studio", icon: Volume2, chip: "bg-emerald-500/20", iconColor: "text-emerald-400" },
+    { key: "scene", step: 6, label: "Scene Composer", icon: Clapperboard, chip: "bg-rose-500/20", iconColor: "text-rose-400" },
+    { key: "storyboard", step: 7, label: "Storyboard", icon: ListVideo, chip: "bg-fuchsia-500/20", iconColor: "text-fuchsia-400" },
+  ];
+  // Everything else is a tool you dip into, not a step you pass through.
+  const tools: Array<{ key: View; label: string; icon: React.ElementType; chip: string; iconColor: string }> = [
     { key: "assets", label: "Assets", icon: LayoutGrid, chip: "bg-cyan-500/20", iconColor: "text-cyan-400" },
     { key: "export", label: "Export", icon: Package, chip: "bg-orange-500/20", iconColor: "text-orange-400" },
-    { key: "settings", label: "Settings", icon: SettingsIcon, chip: "bg-slate-500/20", iconColor: "text-slate-400" },
   ];
 
   if (view === "preview" && project) {
@@ -88,36 +95,94 @@ export function App() {
           </span>
           <span className="font-display font-semibold text-white text-[15px] tracking-wide">Cozyverse Studio</span>
         </div>
-        <nav className="flex-1 py-3 px-2 space-y-0.5">
-          {nav.map(({ key, label, icon: Icon, chip, iconColor }) => (
-            <button
-              key={key}
-              disabled={key !== "projects" && key !== "settings" && !project}
-              onClick={() => setView(key)}
-              className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition ${
-                view === key ? "bg-accent-500/15 text-accent-300" : "text-slate-400 hover:text-white hover:bg-base-800"
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              {view === key && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] bg-accent-500" />}
-              <span className={`flex items-center justify-center w-7 h-7 rounded-lg shrink-0 ${chip}`}>
-                <Icon size={16} className={iconColor} />
-              </span>
-              {label}
-            </button>
-          ))}
+
+        <nav className="flex-1 overflow-y-auto py-3 px-2">
+          <button
+            onClick={() => setView("projects")}
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition mb-2 ${
+              view === "projects" ? "bg-accent-500/15 text-accent-300" : "text-slate-400 hover:text-white hover:bg-base-800"
+            }`}
+          >
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0 bg-slate-500/20">
+              <FolderOpen size={16} className="text-slate-300" />
+            </span>
+            Projects
+          </button>
+
+          <p className="px-2.5 mt-3 mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-600">Your world</p>
+          <div className="space-y-0.5">
+            {flow.map(({ key, step, label, icon: Icon, chip, iconColor, optional }, index) => (
+              <div key={key}>
+                {index > 0 && <div className="ml-6 w-px h-1.5 bg-base-700" />}
+                <button
+                  disabled={!project}
+                  onClick={() => setView(key)}
+                  title={optional ? `${label} — optional: turn any generated image into 3D models or free assets` : undefined}
+                  className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition ${
+                    view === key ? "bg-accent-500/15 text-accent-300" : "text-slate-400 hover:text-white hover:bg-base-800"
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  {view === key && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] bg-accent-500" />}
+                  <span className={`relative flex items-center justify-center w-7 h-7 rounded-lg shrink-0 ${chip}`}>
+                    <Icon size={16} className={iconColor} />
+                    <span className="absolute -bottom-1 -right-1 flex items-center justify-center w-3.5 h-3.5 rounded-full bg-base-900 border border-base-600 text-[8px] font-medium text-slate-400">
+                      {step}
+                    </span>
+                  </span>
+                  <span className="flex-1 text-left truncate">{label}</span>
+                  {optional && <span className="w-1.5 h-1.5 rounded-full bg-teal-500/70 shrink-0" />}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <p className="px-2.5 mt-4 mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-600">Tools</p>
+          <div className="space-y-0.5">
+            {tools.map(({ key, label, icon: Icon, chip, iconColor }) => (
+              <button
+                key={key}
+                disabled={!project}
+                onClick={() => setView(key)}
+                className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition ${
+                  view === key ? "bg-accent-500/15 text-accent-300" : "text-slate-400 hover:text-white hover:bg-base-800"
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+              >
+                {view === key && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] bg-accent-500" />}
+                <span className={`flex items-center justify-center w-7 h-7 rounded-lg shrink-0 ${chip}`}>
+                  <Icon size={16} className={iconColor} />
+                </span>
+                {label}
+              </button>
+            ))}
+          </div>
         </nav>
-        <button
-          onClick={() => setHelpOpen(true)}
-          className="mx-2 mb-1 flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-base-800 transition"
-        >
-          <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0 bg-accent-500/20">
-            <HelpCircle size={16} className="text-accent-400" />
-          </span>
-          Help &amp; Docs
-        </button>
+
+        <div className="px-2 space-y-0.5 border-t border-base-700 pt-2">
+          <button
+            onClick={() => setView("settings")}
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition ${
+              view === "settings" ? "bg-accent-500/15 text-accent-300" : "text-slate-400 hover:text-white hover:bg-base-800"
+            }`}
+          >
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0 bg-slate-500/20">
+              <SettingsIcon size={16} className="text-slate-400" />
+            </span>
+            Settings
+          </button>
+          <button
+            onClick={() => setHelpOpen(true)}
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-base-800 transition"
+          >
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0 bg-accent-500/20">
+              <HelpCircle size={16} className="text-accent-400" />
+            </span>
+            Help &amp; Docs
+          </button>
+        </div>
+
         <QueuePanel />
         {project && (
-          <div className="px-2 pb-2">
+          <div className="px-2 pb-2 pt-2">
             <button
               onClick={() => {
                 setPreviousView(view);
@@ -129,6 +194,7 @@ export function App() {
             </button>
           </div>
         )}
+        {project && <ProviderBalanceTicker />}
         {project && dirName && (
           <div className="p-3 border-t border-base-700">
             <p className="text-xs text-slate-500 truncate mb-2">{project.metadata.name}</p>
@@ -152,6 +218,8 @@ export function App() {
           <ProjectsDashboard onOpened={() => setView("world")} />
         ) : view === "create" ? (
           <ImageStudioPage />
+        ) : view === "decompose3d" ? (
+          <Assets3DPage />
         ) : view === "motion" ? (
           <MotionStudioPage />
         ) : view === "audio" ? (

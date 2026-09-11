@@ -10,6 +10,9 @@ import {
   startDecompose,
   type DecomposeIntent,
 } from "../lib/decompose";
+import { useRenderModePref } from "../lib/preferences";
+import { markSeenGenerateNote } from "../lib/onboarding";
+import { GenerateTrustNote } from "../components/GenerateTrustNote";
 import { buildEditInstruction, buildImageIntent, defaultVariantControls, type ImageVariantControls, type ShotControls } from "../lib/continuity";
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
@@ -66,7 +69,7 @@ export function ImageStudioPage() {
   const [mode, setMode] = useState<"master" | "variant" | "shot">("master");
   const [sourceAssetId, setSourceAssetId] = useState<string>("");
   const [compareIds, setCompareIds] = useState<string[]>([]);
-  const [useReal, setUseReal] = useState(false);
+  const [useReal, setUseReal] = useRenderModePref();
   const [hasConnectedProvider, setHasConnectedProvider] = useState(false);
   const [lightboxAsset, setLightboxAsset] = useState<Asset | null>(null);
   const dirName = useAppStore((state) => state.dirName);
@@ -147,6 +150,7 @@ export function ImageStudioPage() {
     setControls((current) => ({ ...current, styleStack: { ...current.styleStack, ...patch } }));
 
   const handleGenerate = () => {
+    markSeenGenerateNote();
     if (mode === "shot") {
       if (!sourceAssetId || !shotSubject.trim()) return;
       const shotControls: ShotControls = { subjectDescription: shotSubject.trim(), framing: shotFraming, customInstruction: shotInstruction, aspectRatio: shotAspectRatio };
@@ -556,6 +560,7 @@ export function ImageStudioPage() {
             </div>
           )}
 
+          <GenerateTrustNote />
           <button
             disabled={
               (mode === "variant" && !sourceAssetId) ||

@@ -1,7 +1,9 @@
 ﻿import { useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, Loader2, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, KeyRound, Loader2, SlidersHorizontal, Trash2, Wand2, XCircle } from "lucide-react";
 import * as api from "../lib/api";
 import { LocalModelsSection } from "../components/LocalModelsSection";
+import { providerBalance } from "../lib/decompose";
+import { getDefaultRenderMode, setDefaultRenderMode } from "../lib/preferences";
 
 type ProviderId = "fal" | "kie" | "wavespeed" | "gemini" | "elevenlabs" | "openai" | "tripo" | "meshy";
 
@@ -19,11 +21,15 @@ const PROVIDERS: Array<{ id: ProviderId; label: string; description: string; key
 type ConnectionState = { checking: boolean; result?: { reachable: boolean; authenticated: boolean; detail: string } };
 
 export function SettingsPage() {
+  const [tab, setTab] = useState<"providers" | "preferences">("providers");
   const [configured, setConfigured] = useState<Record<ProviderId, boolean>>({ fal: false, kie: false, wavespeed: false, gemini: false, elevenlabs: false, openai: false, tripo: false, meshy: false });
   const [drafts, setDrafts] = useState<Record<ProviderId, string>>({ fal: "", kie: "", wavespeed: "", gemini: "", elevenlabs: "", openai: "", tripo: "", meshy: "" });
   const [saving, setSaving] = useState<ProviderId | null>(null);
   const [connections, setConnections] = useState<Record<ProviderId, ConnectionState>>({ fal: { checking: false }, kie: { checking: false }, wavespeed: { checking: false }, gemini: { checking: false }, elevenlabs: { checking: false }, openai: { checking: false }, tripo: { checking: false }, meshy: { checking: false } });
   const [errors, setErrors] = useState<Record<ProviderId, string | null>>({ fal: null, kie: null, wavespeed: null, gemini: null, elevenlabs: null, openai: null, tripo: null, meshy: null });
+  // Live credit balance for the two providers that actually expose one (Tripo/Meshy,
+  // via Decompose's balance check) — shown inline rather than a vague "connected" pill.
+  const [balances, setBalances] = useState<Record<string, number | null>>({});
 
   const refresh = async () => {
     const results = await Promise.all(
@@ -38,6 +44,7 @@ export function SettingsPage() {
       }),
     );
     setConfigured(Object.fromEntries(results) as Record<ProviderId, boolean>);
+    void providerBalance().then(setBalances).catch(() => {});
   };
 
   useEffect(() => {
@@ -82,15 +89,43 @@ export function SettingsPage() {
     }
   };
 
+  const tripoBalance = balances.tripo;
+  const meshyBalance = balances.meshy;
+
   return (
     <div className="p-8 max-w-3xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-white">Settings</h1>
         <div className="h-[3px] w-14 rounded-full mt-2 mb-1 bg-gradient-to-r from-accent-500 to-accent-400/40" />
-        <p className="text-sm text-slate-400 mt-1">
-          Connect a real generation provider. Keys are stored in Windows Credential Manager, never inside a Cozyverse project file.
-        </p>
+        <p className="text-sm text-slate-400 mt-1">Providers, balances, and how the app behaves by default.</p>
       </div>
+
+      <div className="flex gap-1 mb-6 border-b border-base-700">
+        <button
+          onClick={() => setTab("providers")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px transition ${
+            tab === "providers" ? "border-accent-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"
+          }`}
+        >
+          <KeyRound size={14} /> Providers &amp; Balance
+        </button>
+        <button
+          onClick={() => setTab("preferences")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px transition ${
+            tab === "preferences" ? "border-accent-500 text-white" : "border-transparent text-slate-500 hover:text-slate-300"
+          }`}
+        >
+          <SlidersHorizontal size={14} /> Preferences
+        </button>
+      </div>
+
+      {tab === "preferences" ? (
+        <PreferencesTab />
+      ) : (
+        <>
+      <p className="text-xs text-slate-500 mb-4">
+        Keys are stored in Windows Credential Manager, never inside a Cozyverse project file.
+      </p>
 
       <div className="rounded-lg border border-base-700 bg-base-900 px-4 py-3 text-xs text-slate-400 mb-5">
         Currently wired for real generation, all via <b className="text-slate-300">fal.ai</b> except where noted: <b className="text-slate-300">Image Studio</b>{" "}
@@ -101,6 +136,7 @@ export function SettingsPage() {
       <div className="space-y-4">
         {PROVIDERS.map(({ id, label, description, keyUrl }) => {
           const connection = connections[id];
+          const balance = id === "tripo" ? tripoBalance : id === "meshy" ? meshyBalance : undefined;
           return (
             <div key={id} className="rounded-xl border border-base-700 bg-base-900 p-4">
               <div className="flex items-center justify-between mb-2">
@@ -109,7 +145,11 @@ export function SettingsPage() {
                   <p className="text-xs text-slate-500">{description}</p>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full ${configured[id] ? "bg-green-950 text-green-400" : "bg-base-800 text-slate-500"}`}>
-                  {configured[id] ? "Connected" : "Not connected"}
+                  {configured[id]
+                    ? typeof balance === "number"
+                      ? `${Math.round(balance)} credits`
+                      : "Connected"
+                    : "Not connected"}
                 </span>
               </div>
 
@@ -157,6 +197,55 @@ export function SettingsPage() {
       </div>
 
       <LocalModelsSection />
+        </>
+      )}
+    </div>
+  );
+}
+
+function PreferencesTab() {
+  const [useReal, setUseReal] = useState(getDefaultRenderMode);
+
+  const choose = (value: boolean) => {
+    setUseReal(value);
+    setDefaultRenderMode(value);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Wand2 size={14} className="text-accent-400" />
+          <h3 className="text-sm font-medium text-white">Default rendering mode</h3>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          Image Studio, Motion Studio, and Audio Studio each start on this choice — pick Auto once
+          here instead of flipping it in every studio. Each studio can still override it per session.
+        </p>
+        <div className="inline-flex rounded-md border border-base-600 overflow-hidden text-sm">
+          <button
+            className={`px-4 py-1.5 ${!useReal ? "bg-accent-500 text-accentText" : "text-slate-400 hover:text-white"}`}
+            onClick={() => choose(false)}
+          >
+            Mock
+          </button>
+          <button
+            className={`px-4 py-1.5 ${useReal ? "bg-accent-500 text-accentText" : "text-slate-400 hover:text-white"}`}
+            onClick={() => choose(true)}
+          >
+            Auto
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-600 mt-2">
+          Mock renders locally for free and always works offline. Auto uses whichever connected
+          provider fits the job — add keys under Providers &amp; Balance first.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-base-700 bg-base-900 p-4 text-xs text-slate-500">
+        Decompose's own toggles (Stub mode, 4 side views) stay per-session in its panel — they're
+        wiring/quality choices for one decomposition, not app-wide defaults.
+      </div>
     </div>
   );
 }
