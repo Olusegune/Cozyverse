@@ -40,6 +40,7 @@ import {
   type ExportPackEstimate,
   exportTurnaround,
   type TurnaroundFrame,
+  exportCombinedScene,
   useExportProgress,
   revealDecomposeOutput,
   setStubMode,
@@ -732,6 +733,41 @@ function JobCard({
     }
   };
 
+  const [combining, setCombining] = useState(false);
+  const runCombine = async () => {
+    if (!dirName || combining) return;
+    setCombining(true);
+    try {
+      const { mergeSceneToGlb, loadImageSize, arrayBufferToBase64 } = await import("../lib/sceneMerge");
+      const imageUrl = await decomposeAssetUrl(dirName, job.imagePath);
+      if (!imageUrl) throw new Error("Source image is missing");
+      const size = await loadImageSize(imageUrl);
+
+      const objs: { id: string; class: string; bbox: [number, number, number, number]; glbUrl: string }[] = [];
+      for (const a of job.assets) {
+        // Same preference order as write_scene_manifest in decompose.rs: a
+        // hand-picked library asset first, then a Fast-path generation, then
+        // whatever else finished.
+        const m =
+          a.models.find((x) => x.glbPath && x.provider === "library") ??
+          a.models.find((x) => x.glbPath && x.pathKind === "fast") ??
+          a.models.find((x) => x.glbPath);
+        if (!m?.glbPath) continue;
+        const url = await decomposeAssetUrl(dirName, m.glbPath);
+        if (url) objs.push({ id: a.id, class: a.class, bbox: a.bbox, glbUrl: url });
+      }
+      if (objs.length === 0) throw new Error("Nothing to merge — no finished models");
+
+      const buffer = await mergeSceneToGlb(objs, size);
+      const dataUri = `data:model/gltf-binary;base64,${arrayBufferToBase64(buffer)}`;
+      await exportCombinedScene(dirName, job.id, dataUri);
+    } catch (e) {
+      console.error("combined scene export failed", e);
+    } finally {
+      setCombining(false);
+    }
+  };
+
   const failedCount = useMemo(
     () => job.assets.flatMap((a) => a.models).filter((m) => m.status === "failed").length,
     [job.assets],
@@ -1004,6 +1040,17 @@ function JobCard({
               <RotateCw size={12} className={turn ? "animate-spin" : ""} />
               {turn ? `Rendering ${turn.done}/${turn.total}…` : "Turnaround (.zip)"}
             </button>
+            {job.status === "done" && (
+              <button
+                onClick={() => void runCombine()}
+                disabled={combining}
+                className="flex items-center gap-1.5 text-[11px] text-accent-400 hover:text-accent-300 disabled:opacity-50"
+                title="Merge every object's preferred model into ONE positioned .glb — placed on a virtual floor from its 2D bounding box, same layout math as the Blender add-on. Load it straight into any DCC or engine instead of dragging in loose files one by one."
+              >
+                <Boxes size={12} className={combining ? "animate-pulse" : ""} />
+                {combining ? "Merging…" : "Combined scene (.glb)"}
+              </button>
+            )}
             <button
               onClick={() => setShowUsage((v) => !v)}
               className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300"

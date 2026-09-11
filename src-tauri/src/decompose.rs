@@ -1669,6 +1669,57 @@ pub async fn decompose_export_turnaround(
     Ok(Some(dest.to_string_lossy().into_owned()))
 }
 
+/// Roadmap #3's remainder: one positioned .glb instead of a folder of loose
+/// per-object models. The actual merge (load each GLB, place it on a virtual
+/// floor from its 2D bbox, export as one binary glTF) happens client-side in
+/// `src/lib/sceneMerge.ts` — three.js already has a `GLTFExporter` and the
+/// loader/placement code this reuses from the turnaround renderer, which is
+/// far less risk than hand-assembling glTF JSON + buffers in Rust. This
+/// command is just the save-dialog + disk write, same shape as the other
+/// exporters.
+#[tauri::command]
+pub async fn decompose_export_combined_scene(
+    app: AppHandle,
+    dir_name: String,
+    job_id: String,
+    data_uri: String,
+) -> Result<Option<String>, String> {
+    let project_dir = crate::project_path(&app, &dir_name)?;
+    let job = load_state(&project_dir)
+        .jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+        .ok_or("No such decomposition job")?;
+
+    let bytes = data_uri
+        .split_once(";base64,")
+        .and_then(|(_, b)| base64::engine::general_purpose::STANDARD.decode(b).ok())
+        .ok_or("Malformed scene data")?;
+    if bytes.is_empty() {
+        return Err("The merged scene came back empty.".into());
+    }
+    if bytes.len() > 300 * 1024 * 1024 {
+        return Err("Combined scene is implausibly large.".into());
+    }
+
+    let default_name = format!(
+        "cozyverse-scene-{}-{}obj.glb",
+        job_id_short(&job.id),
+        job.assets.len()
+    );
+    let dest = match rfd::FileDialog::new()
+        .add_filter("glTF Binary", &["glb"])
+        .set_file_name(&default_name)
+        .save_file()
+    {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    fs::write(&dest, &bytes).map_err(|e| format!("Could not save the scene: {e}"))?;
+    Ok(Some(dest.to_string_lossy().into_owned()))
+}
+
 // ---------------------------------------------------------------- python bridge
 
 #[derive(Deserialize)]

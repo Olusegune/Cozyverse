@@ -177,6 +177,17 @@ export async function exportTurnaround(
   return invoke<string | null>("decompose_export_turnaround", { dirName, jobId, frames });
 }
 
+/** Save a client-merged combined scene (one positioned .glb — see
+ * src/lib/sceneMerge.ts) as a `data:model/gltf-binary;base64,...` URI. Returns
+ * the saved path, or null if cancelled. */
+export async function exportCombinedScene(
+  dirName: string,
+  jobId: string,
+  dataUri: string,
+): Promise<string | null> {
+  return invoke<string | null>("decompose_export_combined_scene", { dirName, jobId, dataUri });
+}
+
 export type TurnaroundEngine = { id: string; label: string; note: string };
 
 export type ExportPackEstimate = {
