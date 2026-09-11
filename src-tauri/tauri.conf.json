@@ -33,7 +33,8 @@
     "targets": ["nsis", "msi"],
     "icon": ["icons/icon.ico"],
     "resources": {
-      "../decompose_pipeline.py": "decompose_pipeline.py"
+      "../decompose_pipeline.py": "decompose_pipeline.py",
+      "../clip_rerank.py": "clip_rerank.py"
     },
     "shortDescription": "Create private-heaven digital art worlds",
     "longDescription": "Cozyverse Studio is a local-first creator app for building small, immersive Cozyverse worlds — artwork, motion, audio, and interactive scenes.",

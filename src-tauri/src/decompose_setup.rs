@@ -310,6 +310,11 @@ async fn ensure_venv(app: &AppHandle) -> Result<String, String> {
     Ok(py)
 }
 
+/// Warms the Asset Library's visual re-ranking model (Phase 3, ~600 MB) —
+/// small enough to fetch alongside either setup path without materially
+/// changing the "quick"/"full" size promises shown in the UI.
+const CLIP_FETCH: &str = "from transformers import CLIPModel, CLIPProcessor\nCLIPModel.from_pretrained('openai/clip-vit-base-patch32')\nCLIPProcessor.from_pretrained('openai/clip-vit-base-patch32')\nprint('clip ready')";
+
 /// Quick, CPU-only pipeline: YOLO-World boxes + rembg mattes. ~400 MB, no CUDA.
 async fn do_setup_lite(app: &AppHandle) -> Result<(), String> {
     let py = ensure_venv(app).await?;
@@ -319,16 +324,16 @@ async fn do_setup_lite(app: &AppHandle) -> Result<(), String> {
         app,
         "lite",
         12,
-        75,
+        60,
         &py,
         &[
             "-m", "pip", "install", "--disable-pip-version-check",
-            "ultralytics", "rembg", "onnxruntime", "numpy<2", "pillow",
+            "ultralytics", "rembg", "onnxruntime", "numpy<2", "pillow", "transformers",
         ],
     )
     .await?;
 
-    emit(app, "models", "Fetching the detection model…", 90);
+    emit(app, "models", "Fetching the detection model…", 75);
     // set_classes() is what triggers ultralytics' one-time CLIP fetch + the
     // text-encoder weight download, so warm that here (not just YOLO(...)) —
     // otherwise the first real run stalls mid-decompose.
@@ -337,6 +342,9 @@ async fn do_setup_lite(app: &AppHandle) -> Result<(), String> {
         .arg("from ultralytics import YOLO\nm = YOLO('yolov8s-worldv2.pt')\nm.set_classes(['sofa', 'lamp', 'table'])\ntry:\n from rembg import new_session\n new_session('u2net')\nexcept Exception:\n pass\nprint('lite ready')")
         .output()
         .await;
+
+    emit(app, "clip", "Fetching the visual-match model (~600 MB)…", 88);
+    let _ = cmd(&py).arg("-c").arg(CLIP_FETCH).output().await;
     Ok(())
 }
 
@@ -373,9 +381,12 @@ async fn do_setup(app: &AppHandle) -> Result<(), String> {
     )
     .await?;
 
-    emit(app, "models", "Fetching the segmentation models…", 90);
+    emit(app, "models", "Fetching the segmentation models…", 85);
     const FETCH: &str = "from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection, SamModel, SamProcessor\nAutoProcessor.from_pretrained('IDEA-Research/grounding-dino-base')\nAutoModelForZeroShotObjectDetection.from_pretrained('IDEA-Research/grounding-dino-base')\nSamProcessor.from_pretrained('facebook/sam-vit-base')\nSamModel.from_pretrained('facebook/sam-vit-base')\nprint('models ready')";
     let _ = cmd(&py).arg("-c").arg(FETCH).output().await;
+
+    emit(app, "clip", "Fetching the visual-match model (~600 MB)…", 95);
+    let _ = cmd(&py).arg("-c").arg(CLIP_FETCH).output().await;
 
     Ok(())
 }

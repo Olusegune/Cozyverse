@@ -2305,10 +2305,158 @@ fn class_synonyms(class: &str) -> Vec<String> {
     out
 }
 
+/// Asset Library Phase 3 — CLIP visual re-ranking. `library_search` blends
+/// this into the text score whenever a cutout image is available and the
+/// CLIP checkpoint is already cached; otherwise it's a silent no-op and the
+/// caller falls back to the text-only ranking it already had.
+mod clip_rerank {
+    use super::*;
+
+    type ReadyCache = StdMutex<Option<(Instant, bool)>>;
+
+    fn resolve_script(app: &AppHandle) -> Option<PathBuf> {
+        if let Ok(p) = std::env::var("COZY_CLIP_SCRIPT") {
+            let p = PathBuf::from(p);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        let mut candidates = Vec::new();
+        if let Ok(dir) = app.path().resource_dir() {
+            candidates.push(dir.join("clip_rerank.py"));
+            candidates.push(dir.join("resources/clip_rerank.py"));
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                candidates.push(dir.join("clip_rerank.py"));
+                candidates.push(dir.join("../../../clip_rerank.py"));
+            }
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd.join("clip_rerank.py"));
+            candidates.push(cwd.join("../clip_rerank.py"));
+        }
+        candidates.into_iter().find(|p| p.is_file())
+    }
+
+    /// True once (and only once) the CLIP checkpoint is confirmed cached
+    /// locally — probed with `local_files_only=True` so this never triggers
+    /// a download itself. Cached for 5 minutes so every search in a session
+    /// doesn't pay for a fresh Python spin-up just to check.
+    async fn ready() -> bool {
+        static CACHE: OnceLock<ReadyCache> = OnceLock::new();
+        let cell = CACHE.get_or_init(|| StdMutex::new(None));
+        if let Ok(guard) = cell.lock() {
+            if let Some((at, is_ready)) = *guard {
+                if at.elapsed() < Duration::from_secs(5 * 60) {
+                    return is_ready;
+                }
+            }
+        }
+        const PROBE: &str = "try:\n from transformers import CLIPModel, CLIPProcessor\n CLIPModel.from_pretrained('openai/clip-vit-base-patch32', local_files_only=True)\n CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32', local_files_only=True)\n print('yes')\nexcept Exception:\n print('no')";
+        let python = crate::decompose_setup::resolve_python();
+        let is_ready = match tokio::time::timeout(
+            Duration::from_secs(20),
+            cmd_output(&python, &["-c", PROBE]),
+        )
+        .await
+        {
+            Ok(Ok(out)) => String::from_utf8_lossy(&out).trim().ends_with("yes"),
+            _ => false,
+        };
+        if let Ok(mut guard) = cell.lock() {
+            *guard = Some((Instant::now(), is_ready));
+        }
+        is_ready
+    }
+
+    async fn cmd_output(program: &str, args: &[&str]) -> std::io::Result<Vec<u8>> {
+        let mut c = tokio::process::Command::new(program);
+        c.args(args);
+        #[cfg(windows)]
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        let out = c.output().await?;
+        Ok(out.stdout)
+    }
+
+    /// Re-scores `candidates` in place against `cutout_path` using CLIP
+    /// cosine similarity, blended into each candidate's existing text score.
+    /// Any failure along the way (no script, not cached, subprocess error,
+    /// bad JSON, timeout) leaves `candidates` untouched.
+    pub async fn apply(app: &AppHandle, cutout_path: &Path, candidates: &mut [LibraryCandidate]) {
+        if candidates.is_empty() || !cutout_path.is_file() {
+            return;
+        }
+        if !ready().await {
+            return;
+        }
+        let Some(script) = resolve_script(app) else {
+            return;
+        };
+        let python = crate::decompose_setup::resolve_python();
+
+        let request = json!({
+            "cutout": cutout_path.to_string_lossy(),
+            "candidates": candidates.iter().map(|c| json!({
+                "id": c.id,
+                "thumb": c.thumbnail_url,
+            })).collect::<Vec<_>>(),
+        });
+        let Ok(tmp) = tempfile_for(&request) else {
+            return;
+        };
+
+        let mut c = tokio::process::Command::new(&python);
+        c.arg(&script).arg(&tmp);
+        #[cfg(windows)]
+        c.creation_flags(0x0800_0000);
+        let output = tokio::time::timeout(Duration::from_secs(45), c.output()).await;
+        let _ = std::fs::remove_file(&tmp);
+
+        let Ok(Ok(out)) = output else { return };
+        if !out.status.success() {
+            return;
+        }
+        let Ok(scores) = serde_json::from_slice::<HashMap<String, f64>>(&out.stdout) else {
+            return;
+        };
+        if scores.is_empty() {
+            return;
+        }
+
+        // CLIP cosine similarity is typically 0.15-0.35 for a good visual
+        // match; scale it into the same range the text score already
+        // occupies (roughly 0-8) so it nudges rather than overrides.
+        for c in candidates.iter_mut() {
+            if let Some(sim) = scores.get(&c.id) {
+                c.score += (*sim as f32) * 15.0;
+            }
+        }
+        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    }
+
+    fn tempfile_for(value: &Value) -> std::io::Result<PathBuf> {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("cozyverse-clip-{}.json", stamp()));
+        std::fs::write(&path, serde_json::to_vec(value).unwrap_or_default())?;
+        Ok(path)
+    }
+}
+
 /// Rank Poly Haven models against a detected class. Name hits weigh most, then
-/// tags / categories. Ties broken by download_count.
+/// tags / categories. Ties broken by download_count. When `dirName`/`jobId`/
+/// `assetId` resolve to a real cutout image and the CLIP checkpoint is
+/// already cached (see the "Full setup" / "Quick setup" pre-fetch), results
+/// are additionally re-ranked by visual similarity to that cutout — text-only
+/// ranking otherwise, with no visible difference to the caller either way.
 #[tauri::command]
-pub async fn library_search(object_class: String) -> Result<Vec<LibraryCandidate>, String> {
+pub async fn library_search(
+    app: AppHandle,
+    object_class: String,
+    dir_name: Option<String>,
+    job_id: Option<String>,
+    asset_id: Option<String>,
+) -> Result<Vec<LibraryCandidate>, String> {
     let catalog = poly_haven_catalog().await?;
     let words = class_synonyms(&object_class);
 
@@ -2387,6 +2535,21 @@ pub async fn library_search(object_class: String) -> Result<Vec<LibraryCandidate
 
     scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     scored.truncate(16);
+
+    if let (Some(dir_name), Some(job_id), Some(asset_id)) = (dir_name, job_id, asset_id) {
+        if let Ok(project_dir) = crate::project_path(&app, &dir_name) {
+            let cutout = load_state(&project_dir)
+                .jobs
+                .into_iter()
+                .find(|j| j.id == job_id)
+                .and_then(|j| j.assets.into_iter().find(|a| a.id == asset_id))
+                .map(|a| project_dir.join("assets").join(a.perspective_image));
+            if let Some(cutout) = cutout {
+                clip_rerank::apply(&app, &cutout, &mut scored).await;
+            }
+        }
+    }
+
     Ok(scored)
 }
 

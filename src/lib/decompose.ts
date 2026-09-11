@@ -255,9 +255,22 @@ export type LibraryCandidate = {
   score: number;
 };
 
-/** Ranked CC0 3D-asset matches for a detected object class (Poly Haven). */
-export async function librarySearch(objectClass: string): Promise<LibraryCandidate[]> {
-  return invoke<LibraryCandidate[]>("library_search", { objectClass });
+/** Ranked CC0 3D-asset matches for a detected object class (Poly Haven).
+ * When `dirName`/`jobId`/`assetId` are given, results are also re-ranked by
+ * CLIP visual similarity to that object's cutout — a silent no-op (text-only
+ * ranking) when the CLIP checkpoint isn't cached yet. */
+export async function librarySearch(
+  objectClass: string,
+  dirName?: string,
+  jobId?: string,
+  assetId?: string,
+): Promise<LibraryCandidate[]> {
+  return invoke<LibraryCandidate[]>("library_search", {
+    objectClass,
+    dirName: dirName ?? null,
+    jobId: jobId ?? null,
+    assetId: assetId ?? null,
+  });
 }
 
 /** Download a picked asset into assets/library/ and attach it to the object as a

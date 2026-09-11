@@ -358,7 +358,7 @@ function ConfirmBlock({
   const findAssets = async (a: DecomposedAsset) => {
     setCands((c) => ({ ...c, [a.id]: "loading" }));
     try {
-      const results = await librarySearch(a.class);
+      const results = await librarySearch(a.class, dirName ?? undefined, job.id, a.id);
       setCands((c) => ({ ...c, [a.id]: results }));
     } catch {
       setCands((c) => ({ ...c, [a.id]: [] }));
