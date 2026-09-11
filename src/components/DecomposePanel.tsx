@@ -269,7 +269,7 @@ const TAB_META: Record<PathTab, { label: string; sub: string; on: string }> = {
     on: "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/40",
   },
   library: {
-    label: "Asset library",
+    label: "Free Models",
     sub: "free",
     on: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40",
   },

@@ -125,12 +125,14 @@ the image count up front; a progress bar runs while it works. `COZY_DECOMPOSE_BG
 
 Either way, nothing is sent to Tripo/Meshy and no 3D credits are used.
 
-### Asset Library path (free)
+### Free Models path (free)
 
-In the confirm block, **Asset library — free (CC0)**. Per object: **Find a free
-asset** → a strip of ranked matches from **Poly Haven** (everything there is
-CC0) → click one to download it into `assets/library/<slug>/` and attach it to
-that object. Re-pick to swap; **remove** to detach.
+In the confirm block, the **Free Models** tab (not the app's separate **Assets**
+nav page — same word, different feature: this one is Poly Haven's CC0 catalogue,
+scoped to the objects in this decomposition). Per object: **Find a free asset**
+→ a strip of ranked matches from **Poly Haven** (everything there is CC0) →
+click one to download it into `assets/library/<slug>/` and attach it to that
+object. Re-pick to swap; **remove** to detach.
 
 Library picks flow into `scene.json` (as the `preferred` model, with an
 `attribution` block) and the Blender bridge places them like any other model. A
