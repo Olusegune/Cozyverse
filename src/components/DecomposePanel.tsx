@@ -734,9 +734,11 @@ function JobCard({
   };
 
   const [combining, setCombining] = useState(false);
+  const [combineErr, setCombineErr] = useState<string | null>(null);
   const runCombine = async () => {
     if (!dirName || combining) return;
     setCombining(true);
+    setCombineErr(null);
     try {
       const { mergeSceneToGlb, loadImageSize, arrayBufferToBase64 } = await import("../lib/sceneMerge");
       const imageUrl = await decomposeAssetUrl(dirName, job.imagePath);
@@ -762,7 +764,9 @@ function JobCard({
       const dataUri = `data:model/gltf-binary;base64,${arrayBufferToBase64(buffer)}`;
       await exportCombinedScene(dirName, job.id, dataUri);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("combined scene export failed", e);
+      setCombineErr(msg);
     } finally {
       setCombining(false);
     }
@@ -1051,6 +1055,7 @@ function JobCard({
                 {combining ? "Merging…" : "Combined scene (.glb)"}
               </button>
             )}
+            {combineErr && <p className="w-full text-[11px] text-red-400">{combineErr}</p>}
             <button
               onClick={() => setShowUsage((v) => !v)}
               className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300"

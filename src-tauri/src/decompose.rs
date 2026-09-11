@@ -31,6 +31,7 @@ use std::{
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
+    process::Stdio,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex as StdMutex, OnceLock,
@@ -1691,10 +1692,16 @@ pub async fn decompose_export_combined_scene(
         .find(|j| j.id == job_id)
         .ok_or("No such decomposition job")?;
 
-    let bytes = data_uri
-        .split_once(";base64,")
-        .and_then(|(_, b)| base64::engine::general_purpose::STANDARD.decode(b).ok())
-        .ok_or("Malformed scene data")?;
+    let (_, b64) = data_uri.split_once(";base64,").ok_or("Malformed scene data")?;
+    // Reject on the encoded length first (base64 is ~4/3 the decoded size) so
+    // an implausibly large payload doesn't pay for a full decode before being
+    // turned away — decoding is real CPU + a second full-size allocation.
+    if b64.len() > 400 * 1024 * 1024 {
+        return Err("Combined scene is implausibly large.".into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|_| "Malformed scene data")?;
     if bytes.is_empty() {
         return Err("The merged scene came back empty.".into());
     }
@@ -2407,13 +2414,28 @@ mod clip_rerank {
         };
 
         let mut c = tokio::process::Command::new(&python);
-        c.arg(&script).arg(&tmp);
+        c.arg(&script)
+            .arg(&tmp)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true); // so a timeout below actually ends the process, not just stops awaiting it
         #[cfg(windows)]
         c.creation_flags(0x0800_0000);
-        let output = tokio::time::timeout(Duration::from_secs(45), c.output()).await;
+        let Ok(child) = c.spawn() else {
+            let _ = std::fs::remove_file(&tmp);
+            return;
+        };
+        // Plain `Command::output()` awaits an owned future with no handle
+        // left to kill — on timeout it would just stop polling while the
+        // subprocess (and the CLIP model it's loaded into memory) kept
+        // running as an orphan. Spawning first keeps `child` around so a
+        // timeout can actually terminate it.
+        let output = tokio::time::timeout(Duration::from_secs(45), child.wait_with_output()).await;
         let _ = std::fs::remove_file(&tmp);
 
-        let Ok(Ok(out)) = output else { return };
+        let Ok(Ok(out)) = output else {
+            return;
+        };
         if !out.status.success() {
             return;
         }
@@ -2436,8 +2458,14 @@ mod clip_rerank {
     }
 
     fn tempfile_for(value: &Value) -> std::io::Result<PathBuf> {
+        // `stamp()` alone is nanosecond-resolution wall-clock time, which can
+        // collide if two searches land in the same clock tick (coarser than
+        // 1ns on real hardware) — an atomic counter guarantees uniqueness
+        // within this process regardless of clock granularity.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("cozyverse-clip-{}.json", stamp()));
+        let path = dir.join(format!("cozyverse-clip-{}-{n}.json", stamp()));
         std::fs::write(&path, serde_json::to_vec(value).unwrap_or_default())?;
         Ok(path)
     }

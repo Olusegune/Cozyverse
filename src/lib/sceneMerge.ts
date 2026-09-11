@@ -78,7 +78,11 @@ export async function mergeSceneToGlb(
       const centre = box.getCenter(new THREE.Vector3());
       const curHeight = Math.max(size.y, 1e-4);
       const targetHeight = Math.max(bboxHeightFrac * ROOM_SIZE * 0.9, ROOM_SIZE * 0.05);
-      const scale = targetHeight / curHeight;
+      // A near-zero-volume mesh (bad export, degenerate geometry) would
+      // otherwise divide down to a tiny curHeight and blow scale up to
+      // thousands-of-x — clamp so one bad model can't wreck the whole
+      // merged scene's proportions.
+      const scale = Math.min(targetHeight / curHeight, 1000);
       model.scale.setScalar(scale);
 
       // Ground-plane position: image X -> world X, image Y (down) -> world -Z
