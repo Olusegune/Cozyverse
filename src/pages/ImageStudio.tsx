@@ -17,42 +17,21 @@ import { buildEditInstruction, buildImageIntent, defaultVariantControls, type Im
 import { connectedModelsFor, connectedProviders } from "../lib/providers/realGeneration";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
 import { Lightbox } from "../components/Lightbox";
-import { emptyWorldBible, type Asset } from "../types";
+import { PromptAssist } from "../components/PromptAssist";
+import { ContinuityCheck } from "../components/ContinuityCheck";
+import { StyleFromPhoto } from "../components/StyleFromPhoto";
+import { PostcardExport } from "../components/PostcardExport";
+import { emptyWorldBible, entityKind, ENTITY_KIND_LABELS, projectCharacters, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
-import {
-  activeStackCount,
-  ART_STYLE_PRESETS,
-  ATMOSPHERE_PRESETS,
-  CAMERA_PRESETS,
-  COLOR_PRESETS,
-  CONSTRUCTION_PRESETS,
-  EDGE_STYLE_PRESETS,
-  LIGHTING_PRESETS,
-  MATERIAL_PRESETS,
-  REALISM_PRESETS,
-  type StyleStackControls,
-} from "../lib/styleStack";
+import { activeStackCount, CAMERA_PRESETS, STYLE_STACK_AXES, type StyleStackControls } from "../lib/styleStack";
+import { LIGHTING_OPTIONS, MOOD_PRESETS, TIME_OPTIONS, WEATHER_OPTIONS } from "../lib/sceneOptions";
 
-const WEATHER_OPTIONS = ["Clear", "Rain", "Snow", "Fog", "Overcast", "Storm"];
-const TIME_OPTIONS = ["Morning", "Day", "Sunset", "Night"];
-const LIGHTING_OPTIONS = ["Natural", "Warm", "Cool", "Dramatic", "Soft", "Cinematic", "Noir"];
 const SEASON_OPTIONS = ["Any", "Spring", "Summer", "Autumn", "Winter"];
 const ASPECT_RATIO_OPTIONS = ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"];
 
-const STYLE_STACK_AXES: Array<{ key: keyof StyleStackControls; label: string; presets: typeof ART_STYLE_PRESETS }> = [
-  { key: "artStyle", label: "Art Style", presets: ART_STYLE_PRESETS },
-  { key: "edgeStyle", label: "Edge Style", presets: EDGE_STYLE_PRESETS },
-  { key: "construction", label: "Diorama Construction", presets: CONSTRUCTION_PRESETS },
-  { key: "material", label: "Material", presets: MATERIAL_PRESETS },
-  { key: "realism", label: "Realism Level", presets: REALISM_PRESETS },
-  { key: "lightingPreset", label: "Lighting Preset", presets: LIGHTING_PRESETS },
-  { key: "colorPreset", label: "Color Preset", presets: COLOR_PRESETS },
-  { key: "atmospherePreset", label: "Atmosphere", presets: ATMOSPHERE_PRESETS },
-  { key: "cameraPreset", label: "Camera / Composition", presets: CAMERA_PRESETS },
-];
-
 export function ImageStudioPage() {
   const project = useAppStore((state) => state.project);
+  const activeSceneId = useAppStore((state) => state.activeSceneId);
   const generateImage = useAppStore((state) => state.generateImage);
   const importImage = useAppStore((state) => state.importImage);
   const setHeroImage = useAppStore((state) => state.setHeroImage);
@@ -115,6 +94,7 @@ export function ImageStudioPage() {
     }
   };
   const [styleStackOpen, setStyleStackOpen] = useState(false);
+  const [sceneConditionsOpen, setSceneConditionsOpen] = useState(false);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
   const [rawPromptEnabled, setRawPromptEnabled] = useState(false);
   const [shotSubject, setShotSubject] = useState("");
@@ -124,6 +104,7 @@ export function ImageStudioPage() {
   const [modelOverrideId, setModelOverrideId] = useState("");
   const [connectedModels, setConnectedModels] = useState<RegisteredModel[]>([]);
   const [shotReferenceIds, setShotReferenceIds] = useState<string[]>([]);
+  const [shotCharacterIds, setShotCharacterIds] = useState<string[]>([]);
 
   useEffect(() => {
     void connectedProviders().then((set) => setHasConnectedProvider(set.size > 0));
@@ -138,6 +119,7 @@ export function ImageStudioPage() {
   const shotModel = connectedModels.find((model) => model.id === modelOverrideId);
   useEffect(() => {
     setShotReferenceIds([]);
+    setShotCharacterIds([]);
   }, [modelOverrideId, sourceAssetId]);
 
   const imageAssets = useMemo(() => (project?.assets.filter((asset) => asset.type === "image") || []).slice().reverse(), [project?.assets]);
@@ -153,7 +135,11 @@ export function ImageStudioPage() {
     markSeenGenerateNote();
     if (mode === "shot") {
       if (!sourceAssetId || !shotSubject.trim()) return;
-      const shotControls: ShotControls = { subjectDescription: shotSubject.trim(), framing: shotFraming, customInstruction: shotInstruction, aspectRatio: shotAspectRatio };
+      const characterFragments = projectCharacters(project)
+        .filter((character) => shotCharacterIds.includes(character.id) && character.styleSheet.trim())
+        .map((character) => `${character.name}: ${character.styleSheet.trim()}`);
+      const customInstruction = [...characterFragments, shotInstruction].filter(Boolean).join(" ");
+      const shotControls: ShotControls = { subjectDescription: shotSubject.trim(), framing: shotFraming, customInstruction, aspectRatio: shotAspectRatio };
       enqueueRender(`Shot: ${shotSubject.trim()}`.slice(0, 60), () => generateShot(sourceAssetId, shotControls, modelOverrideId || undefined, shotReferenceIds));
       return;
     }
@@ -188,6 +174,30 @@ export function ImageStudioPage() {
       if (current.length >= max) return current;
       return [...current, assetId];
     });
+  };
+
+  const characters = projectCharacters(project);
+
+  // Picking a character auto-attaches its first reference image as a real reference input on models
+  // that support one (same slot budget as the manual picker above) — the style sheet text still
+  // folds into the prompt at generate time below even when there's no room left for the image, or
+  // the character has no reference image saved yet, so identity consistency doesn't depend on it.
+  const toggleShotCharacter = (characterId: string) => {
+    const alreadyOn = shotCharacterIds.includes(characterId);
+    setShotCharacterIds((current) => (alreadyOn ? current.filter((id) => id !== characterId) : [...current, characterId]));
+    const character = characters.find((existing) => existing.id === characterId);
+    const referenceId = character?.referenceAssetIds[0];
+    if (!referenceId) return;
+    if (alreadyOn) {
+      setShotReferenceIds((current) => current.filter((id) => id !== referenceId));
+    } else {
+      setShotReferenceIds((current) => {
+        if (current.includes(referenceId)) return current;
+        const max = (shotModel?.supportsReferenceImages ?? 1) - 1;
+        if (current.length >= max) return current;
+        return [...current, referenceId];
+      });
+    }
   };
 
   const handleDelete = async (asset: Asset) => {
@@ -314,6 +324,40 @@ export function ImageStudioPage() {
                       className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
                     />
                   </div>
+                  {characters.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Cast &amp; Props in this Shot</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {characters.map((character) => {
+                          const selected = shotCharacterIds.includes(character.id);
+                          return (
+                            <button
+                              key={character.id}
+                              type="button"
+                              title={ENTITY_KIND_LABELS[entityKind(character)]}
+                              onClick={() => toggleShotCharacter(character.id)}
+                              className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                                selected ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
+                              }`}
+                            >
+                              {character.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1.5">
+                        Auto-attaches each one's reference image (if the model supports one) and folds its style sheet into the prompt either way.
+                      </p>
+                      <div className="mt-2">
+                        <ContinuityCheck
+                          prompt={[shotSubject, shotInstruction].filter(Boolean).join(" — ")}
+                          characters={characters.filter((character) => shotCharacterIds.includes(character.id))}
+                          worldBible={project.worldBible}
+                          onAppend={(addition) => setShotInstruction((current) => [current, addition].filter(Boolean).join(", "))}
+                        />
+                      </div>
+                    </div>
+                  )}
                   {Boolean(shotModel?.supportsReferenceImages && shotModel.supportsReferenceImages > 1) && (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">
@@ -404,6 +448,12 @@ export function ImageStudioPage() {
                   </p>
                 )}
                 <p className="text-[11px] text-slate-500 mt-1.5">Weather/Lighting/Style Stack below are ignored while this has text in it — Aspect Ratio still applies, since that's a real generation parameter, not part of the prompt.</p>
+                <PromptAssist
+                  kind="image"
+                  worldBible={project?.worldBible}
+                  scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
+                  onUse={(text) => patchControls({ rawPromptOverride: text })}
+                />
               </div>
             )}
           </div>
@@ -415,10 +465,32 @@ export function ImageStudioPage() {
 
           {mode !== "shot" && (
           <div className={rawPromptEnabled && controls.rawPromptOverride.trim() ? "space-y-4 opacity-40 pointer-events-none" : "space-y-4"}>
-          <Field label="Weather" value={controls.weather} options={WEATHER_OPTIONS} onChange={(value) => patchControls({ weather: value })} />
-          <Field label="Time of Day" value={controls.timeOfDay} options={TIME_OPTIONS} onChange={(value) => patchControls({ timeOfDay: value })} />
-          <Field label="Lighting" value={controls.lighting} options={LIGHTING_OPTIONS} onChange={(value) => patchControls({ lighting: value })} />
-          <Field label="Season" value={controls.season} options={SEASON_OPTIONS} onChange={(value) => patchControls({ season: value })} />
+          <div className="rounded-lg border border-base-700 overflow-hidden">
+            <button
+              onClick={() => setSceneConditionsOpen((open) => !open)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-400 hover:text-white transition"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="shrink-0">Scene Conditions</span>
+                {/* These values can be long free-text (a World Bible field isn't limited to the
+                    dropdown's short option words) — truncate hard so the collapsed header always
+                    stays one line instead of ballooning into a wall of text. */}
+                <span className="normal-case tracking-normal text-slate-500 font-normal truncate">
+                  {controls.weather} · {controls.timeOfDay} · {controls.lighting}
+                  {controls.season !== "Any" ? ` · ${controls.season}` : ""}
+                </span>
+              </span>
+              <ChevronDown size={14} className={`shrink-0 transition-transform ${sceneConditionsOpen ? "rotate-180" : ""}`} />
+            </button>
+            {sceneConditionsOpen && (
+              <div className="px-3 pb-3 space-y-3 border-t border-base-700 pt-3">
+                <Field label="Weather" value={controls.weather} options={WEATHER_OPTIONS} onChange={(value) => patchControls({ weather: value })} />
+                <Field label="Time of Day" value={controls.timeOfDay} options={TIME_OPTIONS} onChange={(value) => patchControls({ timeOfDay: value })} />
+                <Field label="Lighting" value={controls.lighting} options={LIGHTING_OPTIONS} onChange={(value) => patchControls({ lighting: value })} />
+                <Field label="Season" value={controls.season} options={SEASON_OPTIONS} onChange={(value) => patchControls({ season: value })} />
+              </div>
+            )}
+          </div>
 
           <div className="rounded-lg border border-base-700 overflow-hidden">
             <button
@@ -456,6 +528,20 @@ export function ImageStudioPage() {
                     </select>
                   </div>
                 ))}
+
+                <div className="border-t border-base-700 pt-3">
+                  <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">Custom Style (from a photo, or typed)</label>
+                  <textarea
+                    rows={2}
+                    value={controls.styleStack.customStyleDescription}
+                    onChange={(event) => patchStyleStack({ customStyleDescription: event.target.value })}
+                    placeholder="Extract from a photo below, or type your own style description"
+                    className="w-full bg-base-800 border border-base-600 rounded-md px-2.5 py-1.5 text-xs text-white outline-none focus:border-accent-500 resize-none"
+                  />
+                  <div className="mt-1.5">
+                    <StyleFromPhoto onExtracted={(description) => patchStyleStack({ customStyleDescription: description })} />
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -465,8 +551,23 @@ export function ImageStudioPage() {
             <input
               value={controls.mood}
               onChange={(event) => patchControls({ mood: event.target.value })}
+              placeholder="Type your own, or pick a starting point below"
               className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500"
             />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {MOOD_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => patchControls({ mood: preset })}
+                  className={`text-[11px] px-2 py-1 rounded-md border transition ${
+                    controls.mood === preset ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
@@ -715,6 +816,7 @@ export function ImageStudioPage() {
               >
                 <Download size={13} /> Download
               </button>
+              <PostcardExport imageUrl={assetUrl(lightboxAsset)!} title={project.metadata.name} subtitle={project.worldBible.shortConcept} />
               <button
                 disabled={!hasConnectedProvider || upscalingAssetId === lightboxAsset.id}
                 title={hasConnectedProvider ? undefined : "Add a fal.ai API key in Settings first"}

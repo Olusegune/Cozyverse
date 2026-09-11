@@ -9,6 +9,7 @@ import type { Asset, AssetType } from "../types";
 import * as api from "../lib/api";
 import { useRenderModePref } from "../lib/preferences";
 import { Slider } from "../components/Slider";
+import { PromptAssist } from "../components/PromptAssist";
 
 const MUSIC_MODEL_IDS = ["suno/v5", "cassetteai/music-generator"];
 const DIALOGUE_MODEL_IDS = ["elevenlabs/tts", "minimax/speech-2.8-turbo"];
@@ -24,6 +25,7 @@ const TAB_META: Record<Tab, { label: string; icon: React.ElementType; assetType:
 
 export function AudioStudioPage() {
   const project = useAppStore((state) => state.project);
+  const activeSceneId = useAppStore((state) => state.activeSceneId);
   const assetUrl = useAppStore((state) => state.assetUrl);
   const generateAudio = useAppStore((state) => state.generateAudio);
   const generateAudioAdvanced = useAppStore((state) => state.generateAudioAdvanced);
@@ -202,6 +204,9 @@ export function AudioStudioPage() {
                       placeholder="Describe the audio, or the line to speak…"
                       className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
                     />
+                    {advModel?.provider !== "elevenlabs" && advModel?.id !== "minimax/speech-2.8-turbo" && (
+                      <PromptAssist kind="audio" worldBible={project?.worldBible} scene={project?.scenes.find((scene) => scene.id === activeSceneId)} model={advModel} onUse={setAdvPrompt} />
+                    )}
                   </div>
                 )}
 
@@ -351,6 +356,12 @@ export function AudioStudioPage() {
                   onChange={(event) => setCustomInstruction(event.target.value)}
                   placeholder={tab === "ambience" ? "e.g. distant traffic, wind chimes" : tab === "music" ? "e.g. slow piano, warm strings" : "e.g. a soft door creak"}
                   className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
+                />
+                <PromptAssist
+                  kind={tab === "music" ? "audio" : tab === "sfx" ? "sfx" : "ambience"}
+                  worldBible={project?.worldBible}
+                  scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
+                  onUse={setCustomInstruction}
                 />
               </div>
               <div>

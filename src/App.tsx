@@ -1,9 +1,11 @@
 ﻿import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { BookOpen, Boxes, Clapperboard, Film, FolderOpen, HelpCircle, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo } from "lucide-react";
+import { BookOpen, Boxes, Clapperboard, Film, FolderOpen, HelpCircle, Sparkles, Wand2, LayoutGrid, Volume2, PlayCircle, Package, Settings as SettingsIcon, ListVideo, Users, Map } from "lucide-react";
 import { useAppStore } from "./store/useAppStore";
 import { ProjectsDashboard } from "./pages/ProjectsDashboard";
+import { WorldMapPage } from "./pages/WorldMap";
 import { WorldBiblePage } from "./pages/WorldBible";
+import { CharactersPage } from "./pages/Characters";
 import { ImageStudioPage } from "./pages/ImageStudio";
 import { AssetLibraryPage } from "./pages/AssetLibrary";
 import { Assets3DPage } from "./pages/Assets3D";
@@ -21,10 +23,11 @@ import { HelpDialog } from "./components/HelpDialog";
 import { QueuePanel } from "./components/QueuePanel";
 import { ProviderBalanceTicker } from "./components/ProviderBalanceTicker";
 
-type View = "projects" | "world" | "create" | "decompose3d" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
+type View = "projects" | "map" | "world" | "characters" | "create" | "decompose3d" | "assets" | "motion" | "audio" | "scene" | "storyboard" | "preview" | "export" | "settings";
 
 export function App() {
   const { project, dirName, closeProject, saveNow } = useAppStore();
+  const setActiveScene = useAppStore((state) => state.setActiveScene);
   const [view, setView] = useState<View>("projects");
   const [previousView, setPreviousView] = useState<View>("scene");
   const [showSplash, setShowSplash] = useState(true);
@@ -32,7 +35,7 @@ export function App() {
   const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
-    if (dirName) setView("world");
+    if (dirName) setView("map");
   }, [dirName]);
 
   // The native File/Help menu (see build_menu in lib.rs) has no app logic of its own — each item
@@ -54,7 +57,7 @@ export function App() {
     return (
       <SplashScreen
         onDismiss={() => setShowSplash(false)}
-        onOpenHelp={() => {
+        onHelp={() => {
           setShowSplash(false);
           setHelpOpen(true);
         }}
@@ -62,19 +65,21 @@ export function App() {
     );
   }
 
-  // The numbered "flow" is the actual golden path — fill the world in, make an
-  // image, optionally turn pieces of it into 3D, then motion/audio/scene/board it
-  // into something exportable. Each item gets its own chip color (a deliberate
-  // multi-color treatment, like a real icon set) rather than one accent tint
-  // repeated ten times.
+  // The numbered "flow" is the actual golden path — land on the world map, fill
+  // the world in, cast it, make an image, optionally turn pieces of it into 3D,
+  // then motion/audio/scene/board it into something exportable. Each item gets
+  // its own chip color (a deliberate multi-color treatment, like a real icon
+  // set) rather than one accent tint repeated ten times.
   const flow: Array<{ key: View; step: number; label: string; icon: React.ElementType; chip: string; iconColor: string; optional?: boolean }> = [
-    { key: "world", step: 1, label: "World Bible", icon: BookOpen, chip: "bg-violet-500/20", iconColor: "text-violet-400" },
-    { key: "create", step: 2, label: "Image Studio", icon: Wand2, chip: "bg-accent-500/20", iconColor: "text-accent-400" },
-    { key: "decompose3d", step: 3, label: "3D & Assets", icon: Boxes, chip: "bg-teal-500/20", iconColor: "text-teal-400", optional: true },
-    { key: "motion", step: 4, label: "Motion Studio", icon: Film, chip: "bg-sky-500/20", iconColor: "text-sky-400" },
-    { key: "audio", step: 5, label: "Audio Studio", icon: Volume2, chip: "bg-emerald-500/20", iconColor: "text-emerald-400" },
-    { key: "scene", step: 6, label: "Scene Composer", icon: Clapperboard, chip: "bg-rose-500/20", iconColor: "text-rose-400" },
-    { key: "storyboard", step: 7, label: "Storyboard", icon: ListVideo, chip: "bg-fuchsia-500/20", iconColor: "text-fuchsia-400" },
+    { key: "map", step: 1, label: "World Map", icon: Map, chip: "bg-amber-500/20", iconColor: "text-amber-400" },
+    { key: "world", step: 2, label: "World Bible", icon: BookOpen, chip: "bg-violet-500/20", iconColor: "text-violet-400" },
+    { key: "characters", step: 3, label: "Cast & Props", icon: Users, chip: "bg-pink-500/20", iconColor: "text-pink-400" },
+    { key: "create", step: 4, label: "Image Studio", icon: Wand2, chip: "bg-accent-500/20", iconColor: "text-accent-400" },
+    { key: "decompose3d", step: 5, label: "3D & Assets", icon: Boxes, chip: "bg-teal-500/20", iconColor: "text-teal-400", optional: true },
+    { key: "motion", step: 6, label: "Motion Studio", icon: Film, chip: "bg-sky-500/20", iconColor: "text-sky-400" },
+    { key: "audio", step: 7, label: "Audio Studio", icon: Volume2, chip: "bg-emerald-500/20", iconColor: "text-emerald-400" },
+    { key: "scene", step: 8, label: "Scene Composer", icon: Clapperboard, chip: "bg-rose-500/20", iconColor: "text-rose-400" },
+    { key: "storyboard", step: 9, label: "Storyboard", icon: ListVideo, chip: "bg-fuchsia-500/20", iconColor: "text-fuchsia-400" },
   ];
   // Everything else is a tool you dip into, not a step you pass through.
   const tools: Array<{ key: View; label: string; icon: React.ElementType; chip: string; iconColor: string }> = [
@@ -215,7 +220,16 @@ export function App() {
         {view === "settings" ? (
           <SettingsPage />
         ) : view === "projects" || !project ? (
-          <ProjectsDashboard onOpened={() => setView("world")} />
+          <ProjectsDashboard onOpened={() => setView("map")} />
+        ) : view === "map" ? (
+          <WorldMapPage
+            onOpenScene={(sceneId) => {
+              setActiveScene(sceneId);
+              setView("scene");
+            }}
+          />
+        ) : view === "characters" ? (
+          <CharactersPage />
         ) : view === "create" ? (
           <ImageStudioPage />
         ) : view === "decompose3d" ? (

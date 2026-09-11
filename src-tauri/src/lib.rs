@@ -1,5 +1,6 @@
 mod decompose;
 mod decompose_setup;
+mod ollama;
 mod providers;
 mod video_export;
 
@@ -577,14 +578,21 @@ pub fn run() {
             providers::generation_result,
             providers::save_asset_from_url,
             providers::gemini_generate_text,
+            providers::gemini_describe_image_style,
             providers::elevenlabs_list_voices,
             providers::list_local_models,
             providers::save_local_model,
             providers::delete_local_model,
             providers::comfyui_test_connection,
+            ollama::ollama_get_settings,
+            ollama::ollama_save_settings,
+            ollama::ollama_test_connection,
+            ollama::ollama_list_models,
+            ollama::ollama_generate,
             video_export::ffmpeg_available,
             video_export::reveal_in_explorer,
             video_export::save_video_copy,
+            video_export::save_generated_bytes,
             video_export::render_scene_video,
             video_export::render_timeline_shot,
             video_export::finish_timeline_render,

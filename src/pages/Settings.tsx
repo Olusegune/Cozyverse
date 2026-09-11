@@ -1,9 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import { CheckCircle2, KeyRound, Loader2, SlidersHorizontal, Trash2, Wand2, XCircle } from "lucide-react";
 import * as api from "../lib/api";
+import { useAppStore } from "../store/useAppStore";
 import { LocalModelsSection } from "../components/LocalModelsSection";
 import { providerBalance } from "../lib/decompose";
 import { getDefaultRenderMode, setDefaultRenderMode } from "../lib/preferences";
+import { OllamaSection } from "../components/OllamaSection";
+import { UsageSummary } from "../components/UsageSummary";
 
 type ProviderId = "fal" | "kie" | "wavespeed" | "gemini" | "elevenlabs" | "openai" | "tripo" | "meshy";
 
@@ -21,6 +24,7 @@ const PROVIDERS: Array<{ id: ProviderId; label: string; description: string; key
 type ConnectionState = { checking: boolean; result?: { reachable: boolean; authenticated: boolean; detail: string } };
 
 export function SettingsPage() {
+  const project = useAppStore((state) => state.project);
   const [tab, setTab] = useState<"providers" | "preferences">("providers");
   const [configured, setConfigured] = useState<Record<ProviderId, boolean>>({ fal: false, kie: false, wavespeed: false, gemini: false, elevenlabs: false, openai: false, tripo: false, meshy: false });
   const [drafts, setDrafts] = useState<Record<ProviderId, string>>({ fal: "", kie: "", wavespeed: "", gemini: "", elevenlabs: "", openai: "", tripo: "", meshy: "" });
@@ -133,6 +137,12 @@ export function SettingsPage() {
         (ambience/music/SFX, plus dialogue via WaveSpeed). Every capability still has a Mock (local, free) option too — switch to it any time.
       </div>
 
+      {project && (
+        <div className="mb-5">
+          <UsageSummary generations={project.generations} />
+        </div>
+      )}
+
       <div className="space-y-4">
         {PROVIDERS.map(({ id, label, description, keyUrl }) => {
           const connection = connections[id];
@@ -197,6 +207,7 @@ export function SettingsPage() {
       </div>
 
       <LocalModelsSection />
+      <OllamaSection />
         </>
       )}
     </div>

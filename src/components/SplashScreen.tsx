@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { BookOpen, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { HelpCircle, X } from "lucide-react";
 
 const LAST_SPLASH_KEY = "cozyverse-last-splash";
 const AUTO_DISMISS_MS = 8000;
@@ -13,18 +13,36 @@ function nextVariant(): SplashVariant {
   return next;
 }
 
-export function SplashScreen({ onDismiss, onOpenHelp }: { onDismiss: () => void; onOpenHelp?: () => void }) {
+export function SplashScreen({ onDismiss, onHelp }: { onDismiss: () => void; onHelp: () => void }) {
   const [variant] = useState<SplashVariant>(nextVariant);
   const [closing, setClosing] = useState(false);
+  const timerRef = useRef<number | null>(null);
 
   const dismiss = () => {
     setClosing(true);
     window.setTimeout(onDismiss, 250);
   };
 
+  // A fixed 8s auto-dismiss doesn't give a real first-time user enough room to notice and click
+  // Help before the splash vanishes out from under their cursor — the fix isn't a longer fixed
+  // number (still a guess), it's pausing the countdown entirely while they're actually looking at
+  // it. Hovering the splash cancels the pending timer; leaving restarts a fresh one, so someone who
+  // never interacts still gets the same original behavior, but reading or reaching for a button
+  // buys unlimited extra time.
+  const clearTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  const startTimer = () => {
+    clearTimer();
+    timerRef.current = window.setTimeout(dismiss, AUTO_DISMISS_MS);
+  };
+
   useEffect(() => {
-    const timer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
-    return () => window.clearTimeout(timer);
+    startTimer();
+    return clearTimer;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -32,6 +50,8 @@ export function SplashScreen({ onDismiss, onOpenHelp }: { onDismiss: () => void;
     <div
       className={`fixed inset-0 z-[100] bg-base-950/95 flex items-center justify-center p-4 sm:p-6 transition-opacity duration-300 ${closing ? "opacity-0" : "opacity-100"}`}
       onClick={dismiss}
+      onMouseEnter={clearTimer}
+      onMouseLeave={startTimer}
     >
       <div className="relative max-w-7xl w-full">
         <img
@@ -39,28 +59,29 @@ export function SplashScreen({ onDismiss, onOpenHelp }: { onDismiss: () => void;
           alt="Cozyverse Studio"
           className="w-full h-auto max-h-[88vh] object-contain rounded-2xl border border-white/10 shadow-2xl"
         />
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            dismiss();
-          }}
-          aria-label="Close splash screen"
-          className="absolute -top-3 -right-3 flex items-center gap-1.5 text-xs text-white/80 hover:text-white bg-black/60 hover:bg-black/80 rounded-full px-3 py-1.5 transition"
-        >
-          <X size={14} /> Skip
-        </button>
-        {onOpenHelp && (
+        <div className="absolute -top-3 -right-3 flex items-center gap-2">
           <button
             onClick={(event) => {
               event.stopPropagation();
-              setClosing(true);
-              window.setTimeout(onOpenHelp, 250);
+              onHelp();
             }}
-            className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-xs font-medium text-accentText bg-accent-500 hover:bg-accent-400 rounded-full px-4 py-1.5 shadow-lg transition"
+            aria-label="Open Help & Documentation"
+            title="Help & Documentation"
+            className="flex items-center gap-1.5 text-xs text-white/80 hover:text-white bg-black/60 hover:bg-black/80 rounded-full px-3 py-1.5 transition"
           >
-            <BookOpen size={14} /> Documentation
+            <HelpCircle size={14} /> Help
           </button>
-        )}
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              dismiss();
+            }}
+            aria-label="Close splash screen"
+            className="flex items-center gap-1.5 text-xs text-white/80 hover:text-white bg-black/60 hover:bg-black/80 rounded-full px-3 py-1.5 transition"
+          >
+            <X size={14} /> Skip
+          </button>
+        </div>
       </div>
     </div>
   );

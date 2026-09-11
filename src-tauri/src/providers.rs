@@ -360,6 +360,35 @@ pub async fn gemini_generate_text(prompt: String) -> Result<String, String> {
     Ok(text)
 }
 
+/// Reverse-engineers a Style Stack-style art-direction description from a reference photo — "make
+/// my world look like THIS image" instead of picking descriptive words by hand. Sends the image as
+/// an inline_data part (same multimodal shape gemini_generate_image already uses for reference
+/// images) alongside an instruction asking for a single dense prose paragraph covering material,
+/// color, lighting, and camera language — deliberately prose, not structured fields, since that's
+/// what actually gets pasted into a generation prompt (Raw Prompt Override / a custom style axis),
+/// and avoids betting on an unconfirmed JSON-mode response shape (same caution as
+/// gemini_generate_text above).
+#[tauri::command]
+pub async fn gemini_describe_image_style(image_mime: String, image_base64: String) -> Result<String, String> {
+    let key = provider_key("gemini")?;
+    let instruction = "Describe the visual art style of this image as a single dense, comma-separated prompt fragment suitable for pasting directly into an AI image generation prompt to replicate this exact style on a different subject. Cover: overall art style/medium, material and surface qualities, color palette (name actual colors), lighting quality and direction, camera angle and composition, and any distinctive rendering technique. Do not describe the specific subject matter or content of this image — only the STYLE, so it can be applied to something else entirely. One paragraph, no headers, no bullet points, no preamble like \"Here is a description\" — output only the style description itself.";
+    let body = serde_json::json!({
+        "contents": [{ "parts": [
+            { "text": instruction },
+            { "inline_data": { "mime_type": image_mime, "data": image_base64 } },
+        ] }]
+    });
+    // Uses the plain text model (not the image-generation one) — this call wants text OUT
+    // describing the image IN, the same "multimodal input, text output" shape gemini_generate_text
+    // already uses successfully, just with an added inline_data image part.
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent";
+    let value = gemini_request(url.into(), &key, &body).await?;
+    let parts = value.pointer("/candidates/0/content/parts").and_then(Value::as_array).ok_or_else(|| format!("Gemini did not return a readable style description: {value}"))?;
+    let text: String = parts.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("");
+    if text.trim().is_empty() { return Err(format!("Gemini returned an empty style description: {value}")); }
+    Ok(text.trim().to_owned())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ElevenLabsVoice {
@@ -797,8 +826,12 @@ fn fal_shot_video_input(model_id: &str, input: &mut serde_json::Map<String, Valu
             input.remove("image_url");
             input.remove("end_image_url");
             input.remove("generate_audio");
+            // Confirmed via a live 422 from fal's own API: this endpoint's "duration" is a plain
+            // integer (2-10), not the stringified enum some other Shot Mode models want — sending
+            // it as a string ("5") is rejected as a literal_error even though 5 is in the accepted
+            // set, because the type itself is wrong.
             if let Some(seconds) = duration_seconds.and_then(|v| v.as_u64()) {
-                input.insert("duration".into(), Value::String(seconds.to_string()));
+                input.insert("duration".into(), Value::Number(seconds.into()));
             }
         }
         "lightricks/ltx-2.5/image-to-video/pro" => {
@@ -1487,7 +1520,9 @@ mod tests {
         assert!(input.get("image_url").is_none(), "this model has no single start-frame field — only reference arrays");
         assert_eq!(input.get("reference_image_urls"), Some(&json!(["r1", "r2", "r3"])));
         assert_eq!(input.get("reference_video_urls"), Some(&json!(["v1"])));
-        assert_eq!(input.get("duration").and_then(|v| v.as_str()), Some("10"));
+        // Regression test for a live 422: this endpoint wants "duration" as a plain integer, not a
+        // stringified enum — sending "10" (string) was rejected even though 10 is a valid value.
+        assert_eq!(input.get("duration"), Some(&json!(10)), "duration must be a real integer, not a stringified enum, for this endpoint");
     }
 
     #[test]

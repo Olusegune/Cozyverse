@@ -34,6 +34,22 @@ pub fn save_video_copy(source_path: String, suggested_name: String) -> Result<Op
         .transpose()
 }
 
+/// Save-As for bytes generated entirely client-side (e.g. the Postcard export, composited on an
+/// in-page <canvas>) rather than an already-existing file on disk — same dialog pattern as
+/// save_video_copy, but takes the data itself instead of a source path to copy from.
+#[tauri::command]
+pub fn save_generated_bytes(base64_data: String, suggested_name: String, filter_extension: String) -> Result<Option<String>, String> {
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data.split(',').last().unwrap_or(&base64_data))
+        .map_err(|error| format!("Could not decode image data: {error}"))?;
+    let destination = rfd::FileDialog::new().set_file_name(&suggested_name).add_filter(&filter_extension, &[filter_extension.as_str()]).save_file();
+    destination
+        .map(|path| {
+            std::fs::write(&path, &bytes).map_err(|error| format!("Could not save file: {error}"))?;
+            Ok(path.to_string_lossy().into_owned())
+        })
+        .transpose()
+}
+
 /// Opens Windows Explorer with the rendered file pre-selected — the counterpart to just handing
 /// the user a raw path string, which is not a usable way to see a video you just rendered.
 #[tauri::command]

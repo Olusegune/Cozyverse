@@ -3,10 +3,7 @@ import { Maximize, Minimize, Pause, Play, Volume2, VolumeX, X, ChevronUp, Chevro
 import { useAppStore } from "../store/useAppStore";
 import { pickBackgroundForControls } from "../lib/sceneMatching";
 import { Slider } from "../components/Slider";
-
-const TIME_OPTIONS = ["Morning", "Day", "Sunset", "Night"];
-const LIGHTING_OPTIONS = ["Natural", "Warm", "Cool", "Dramatic", "Soft"];
-const WEATHER_OPTIONS = ["Clear", "Rain", "Snow", "Fog", "Overcast", "Storm"];
+import { LIGHTING_OPTIONS, TIME_OPTIONS, WEATHER_OPTIONS } from "../lib/sceneOptions";
 
 export function PreviewPage({ onExit }: { onExit: () => void }) {
   const project = useAppStore((state) => state.project);
@@ -119,7 +116,7 @@ export function PreviewPage({ onExit }: { onExit: () => void }) {
         {motionUrl ? (
           <video src={motionUrl} autoPlay loop muted className="w-full h-full object-cover" />
         ) : backgroundUrl ? (
-          <img src={backgroundUrl} alt="" className="w-full h-full object-cover" />
+          <CrossfadeBackground url={backgroundUrl} />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-slate-500">No background set for this scene.</div>
         )}
@@ -148,8 +145,28 @@ export function PreviewPage({ onExit }: { onExit: () => void }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <SelectField label="Time" value={time} options={TIME_OPTIONS} onChange={setTime} />
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] uppercase tracking-wide text-white/50">Time of Day</label>
+                <span className="text-[11px] text-white/70">{time}</span>
+              </div>
+              {/* A real day/night scrubber, not just a dropdown — drag across it and the scene
+                  crossfades between whichever generated variant best matches each time-of-day
+                  stop, via CrossfadeBackground below. Snaps to TIME_OPTIONS' discrete stops since
+                  those are what pickBackgroundForControls actually matches against; there's no
+                  continuous blend between two real images, but the crossfade animation is what
+                  sells the "scrubbing through time" feel. */}
+              <Slider
+                min={0}
+                max={TIME_OPTIONS.length - 1}
+                step={1}
+                value={Math.max(0, TIME_OPTIONS.indexOf(time))}
+                onChange={(index) => setTime(TIME_OPTIONS[index] ?? time)}
+                className="w-full"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
               <SelectField label="Lighting" value={lighting} options={LIGHTING_OPTIONS} onChange={setLighting} />
               <SelectField label="Weather" value={weather} options={WEATHER_OPTIONS} onChange={setWeather} />
             </div>
@@ -199,6 +216,51 @@ function SelectField({ label, value, options, onChange }: { label: string; value
         ))}
       </select>
     </div>
+  );
+}
+
+/** Crossfades between background images as the Time of Day scrubber moves, instead of hard-cutting
+ * to whatever pickBackgroundForControls resolves next — makes scrubbing feel like watching the
+ * scene's light change rather than flipping through a slideshow. Keeps at most two image layers
+ * mounted at once: the incoming one starts at opacity 0 and is flipped to 1 two animation frames
+ * after mount (so the browser actually paints the 0 state first and the CSS transition has
+ * something to animate from), and the previous layer is dropped once the fade has had time to
+ * finish. */
+function CrossfadeBackground({ url }: { url: string }) {
+  const [layers, setLayers] = useState<{ id: number; url: string; revealed: boolean }[]>(() => [{ id: 0, url, revealed: true }]);
+  const nextId = useRef(1);
+
+  useEffect(() => {
+    setLayers((current) => {
+      if (current.length > 0 && current[current.length - 1].url === url) return current;
+      const id = nextId.current++;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setLayers((withNew) => withNew.map((layer) => (layer.id === id ? { ...layer, revealed: true } : layer)));
+        });
+      });
+      return [...current, { id, url, revealed: false }];
+    });
+  }, [url]);
+
+  useEffect(() => {
+    if (layers.length <= 1) return;
+    const timer = window.setTimeout(() => setLayers((current) => current.slice(-1)), 900);
+    return () => window.clearTimeout(timer);
+  }, [layers]);
+
+  return (
+    <>
+      {layers.map((layer) => (
+        <img
+          key={layer.id}
+          src={layer.url}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out"
+          style={{ opacity: layer.revealed ? 1 : 0 }}
+        />
+      ))}
+    </>
   );
 }
 

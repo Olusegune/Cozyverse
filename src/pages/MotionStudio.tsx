@@ -4,12 +4,16 @@ import { useAppStore } from "../store/useAppStore";
 import { connectedModelsFor, connectedProviders, connectedVideoModelsForShotMode } from "../lib/providers/realGeneration";
 import { Slider } from "../components/Slider";
 import { useRenderModePref } from "../lib/preferences";
+import { PromptAssist } from "../components/PromptAssist";
+import { ContinuityCheck } from "../components/ContinuityCheck";
 import * as api from "../lib/api";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
+import { entityKind, ENTITY_KIND_LABELS, projectCharacters } from "../types";
 
 export function MotionStudioPage() {
   const project = useAppStore((state) => state.project);
   const dirName = useAppStore((state) => state.dirName);
+  const activeSceneId = useAppStore((state) => state.activeSceneId);
   const assetUrl = useAppStore((state) => state.assetUrl);
   const generateMotion = useAppStore((state) => state.generateMotion);
   const generateVideoShot = useAppStore((state) => state.generateVideoShot);
@@ -38,6 +42,7 @@ export function MotionStudioPage() {
   const [shotStartId, setShotStartId] = useState("");
   const [shotEndId, setShotEndId] = useState("");
   const [shotReferenceIds, setShotReferenceIds] = useState<string[]>([]);
+  const [shotCharacterIds, setShotCharacterIds] = useState<string[]>([]);
   const [shotReferenceVideoId, setShotReferenceVideoId] = useState("");
   const [shotReferenceAudioIds, setShotReferenceAudioIds] = useState<string[]>([]);
   const [shotAspectRatio, setShotAspectRatio] = useState("");
@@ -77,7 +82,7 @@ export function MotionStudioPage() {
     setShotDuration(Math.min(5, shotModel.maxDurationSeconds ?? 5));
     if (!shotModel.requiresStartFrame) setShotStartId("");
     if (!shotModel.supportsEndFrame) setShotEndId("");
-    if (!shotModel.supportsReferenceImages) setShotReferenceIds([]);
+    if (!shotModel.supportsReferenceImages) { setShotReferenceIds([]); setShotCharacterIds([]); }
     if (!shotModel.supportsReferenceVideo) setShotReferenceVideoId("");
     if (!shotModel.supportsReferenceAudio) setShotReferenceAudioIds([]);
   }, [shotModelId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -131,12 +136,39 @@ export function MotionStudioPage() {
     });
   };
 
+  const characters = project ? projectCharacters(project) : [];
+
+  // Same pattern as Image Studio's Shot Mode: picking a character auto-attaches its first reference
+  // image (respecting this model's own reference-image slot budget) and its style sheet always folds
+  // into the prompt at generate time below, regardless of whether the image could be attached too.
+  const toggleShotCharacter = (characterId: string) => {
+    const alreadyOn = shotCharacterIds.includes(characterId);
+    setShotCharacterIds((current) => (alreadyOn ? current.filter((id) => id !== characterId) : [...current, characterId]));
+    const character = characters.find((existing) => existing.id === characterId);
+    const referenceId = character?.referenceAssetIds[0];
+    if (!referenceId) return;
+    if (alreadyOn) {
+      setShotReferenceIds((current) => current.filter((id) => id !== referenceId));
+    } else {
+      setShotReferenceIds((current) => {
+        if (current.includes(referenceId)) return current;
+        const max = shotModel?.supportsReferenceImages ?? 0;
+        if (current.length >= max) return current;
+        return [...current, referenceId];
+      });
+    }
+  };
+
   const handleGenerateShot = () => {
     if (!shotModel || !shotPrompt.trim()) return;
     if (shotModel.requiresStartFrame && !shotStartId) return;
+    const characterFragments = characters
+      .filter((character) => shotCharacterIds.includes(character.id) && character.styleSheet.trim())
+      .map((character) => `${character.name}: ${character.styleSheet.trim()}`);
+    const prompt = [...characterFragments, shotPrompt].filter(Boolean).join(" ");
     enqueueRender(`Shot: ${shotPrompt}`.slice(0, 60), () =>
       generateVideoShot({
-        prompt: shotPrompt,
+        prompt,
         modelId: shotModel.id,
         startAssetId: shotStartId || undefined,
         endAssetId: shotEndId || undefined,
@@ -236,6 +268,14 @@ export function MotionStudioPage() {
                     placeholder="Describe the shot — action, camera movement, mood…"
                     className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
                   />
+                  <PromptAssist
+                    kind="video"
+                    worldBible={project?.worldBible}
+                    scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
+                    model={shotModel}
+                    shotCharacters={characters.filter((character) => shotCharacterIds.includes(character.id))}
+                    onUse={setShotPrompt}
+                  />
                 </div>
 
                 {shotModel?.requiresStartFrame && (
@@ -271,6 +311,41 @@ export function MotionStudioPage() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {characters.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Cast &amp; Props in this Shot</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {characters.map((character) => {
+                        const selected = shotCharacterIds.includes(character.id);
+                        return (
+                          <button
+                            key={character.id}
+                            type="button"
+                            title={ENTITY_KIND_LABELS[entityKind(character)]}
+                            onClick={() => toggleShotCharacter(character.id)}
+                            className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                              selected ? "border-accent-500 bg-accent-500/10 text-accent-400" : "border-base-600 text-slate-400 hover:text-white hover:border-base-500"
+                            }`}
+                          >
+                            {character.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1.5">
+                      Auto-attaches each one's reference image (if this model supports one) and folds its style sheet into the prompt either way.
+                    </p>
+                    <div className="mt-2">
+                      <ContinuityCheck
+                        prompt={shotPrompt}
+                        characters={characters.filter((character) => shotCharacterIds.includes(character.id))}
+                        worldBible={project?.worldBible}
+                        onAppend={(addition) => setShotPrompt((current) => [current, addition].filter(Boolean).join(", "))}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -350,6 +425,13 @@ export function MotionStudioPage() {
                   const showVideo = Boolean(mentions?.video) && shotReferenceVideoId;
                   const showAudio = Boolean(mentions?.audio) && shotReferenceAudioIds.length > 0;
                   if (!showImages && !showVideo && !showAudio) return null;
+                  // The model's actual @mention syntax is fixed (@Image1, @Image2, ... — a real API
+                  // contract, not something Cozyverse can rename), so the inserted token always stays
+                  // positional. But a chip that just says "@Image2" gives no way to tell which named
+                  // Cast & Props entity that position actually is — label it with the entity's name
+                  // whenever this reference image IS one, so picking the right mention doesn't mean
+                  // counting positions by hand.
+                  const entityNameForAsset = (assetId: string) => characters.find((character) => character.referenceAssetIds[0] === assetId)?.name;
                   return (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Insert Reference in Prompt</label>
@@ -358,15 +440,20 @@ export function MotionStudioPage() {
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {showImages &&
-                          shotReferenceIds.map((_, index) => (
-                            <button
-                              key={`image-${index}`}
-                              onClick={() => insertMention(`Image${index + 1}`)}
-                              className="text-[11px] px-2 py-1 rounded-md border border-base-600 text-slate-300 hover:text-white hover:border-accent-500 transition"
-                            >
-                              @Image{index + 1}
-                            </button>
-                          ))}
+                          shotReferenceIds.map((assetId, index) => {
+                            const entityName = entityNameForAsset(assetId);
+                            return (
+                              <button
+                                key={`image-${index}`}
+                                onClick={() => insertMention(`Image${index + 1}`)}
+                                title={entityName ? `${entityName}'s reference image` : undefined}
+                                className="text-[11px] px-2 py-1 rounded-md border border-base-600 text-slate-300 hover:text-white hover:border-accent-500 transition"
+                              >
+                                @Image{index + 1}
+                                {entityName && <span className="text-accent-400"> ({entityName})</span>}
+                              </button>
+                            );
+                          })}
                         {showVideo && (
                           <button
                             onClick={() => insertMention("Video1")}
@@ -527,6 +614,7 @@ export function MotionStudioPage() {
                 placeholder="e.g. rain falling steadily, slow camera drift across the skyline"
                 className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
               />
+              <PromptAssist kind="video" worldBible={project?.worldBible} scene={project?.scenes.find((scene) => scene.id === activeSceneId)} onUse={setMotionDescription} />
             </div>
 
             <div>

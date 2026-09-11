@@ -97,6 +97,42 @@ export type CozyverseMetadata = {
   updatedAt: string;
 };
 
+/** What kind of recurring, reusable thing this entry represents. Characters, props, vehicles, and
+ * sets are structurally identical (a name, a style sheet, reference images) — this field is the
+ * only thing that distinguishes them, deliberately, so the whole rest of the system (picker,
+ * Continuity Guardian, Prompt Assist context) works unchanged for all four instead of needing a
+ * parallel implementation per kind. Optional on the type (not every stored Character predates this
+ * field) — always read through entityKind() below rather than this field directly. */
+export type EntityKind = "character" | "prop" | "vehicle" | "set";
+
+export const ENTITY_KIND_LABELS: Record<EntityKind, string> = {
+  character: "Character",
+  prop: "Prop",
+  vehicle: "Vehicle",
+  set: "Set",
+};
+
+/** A reusable named entity (a character, prop, vehicle, or set) — a "style sheet" (appearance,
+ * materials, personality, anything that needs to stay consistent) plus reference images that ARE
+ * this entity. Picking one into a shot (Image/Motion Studio Shot Mode) auto-attaches its reference
+ * image as a real reference input on models that support one, and folds the style sheet text into
+ * the prompt for every model either way — so consistency doesn't depend on the user re-typing the
+ * same description every time. Kept named "Character" (not renamed to "Entity") to avoid a
+ * needless data migration and a large, low-value rename across the codebase; `kind` is what
+ * actually generalizes it. */
+export type Character = {
+  id: string;
+  name: string;
+  kind?: EntityKind;
+  styleSheet: string;
+  referenceAssetIds: string[];
+  createdAt: string;
+};
+
+/** Safe accessor for Character.kind — defaults to "character" for entries saved before this field
+ * existed, so old projects keep working exactly as before without a migration step. */
+export const entityKind = (character: Character): EntityKind => character.kind ?? "character";
+
 /** In-memory shape of a fully loaded Cozyverse project. */
 export type CozyverseProject = {
   metadata: CozyverseMetadata;
@@ -105,6 +141,9 @@ export type CozyverseProject = {
   generations: GenerationJob[];
   scenes: Scene[];
   timeline: TimelineShot[];
+  /** Optional for backward compatibility with projects saved before this field existed — always
+   * read through the projectCharacters() helper below, never this field directly. */
+  characters?: Character[];
 };
 
 export type CozyverseSummary = {
@@ -159,5 +198,10 @@ export const emptyProject = (name: string): CozyverseProject => {
     generations: [],
     scenes: [],
     timeline: [],
+    characters: [],
   };
 };
+
+/** Safe accessor for project.characters — always use this instead of reading the field directly,
+ * since it's optional for backward compatibility with projects saved before Characters existed. */
+export const projectCharacters = (project: CozyverseProject): Character[] => project.characters ?? [];

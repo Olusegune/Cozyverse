@@ -1,6 +1,6 @@
 import type { GenerationIntent } from "../continuity";
 import type { ImageGenerationResult, ImageProvider } from "./types";
-import { buildSkyline, drawSky, drawSkyline, drawWeather, hashString, wrapText } from "./sceneRenderer";
+import { buildSkyline, deriveDistinguishingLabel, drawLabelBadge, drawSky, drawSkyline, drawWeather, hashString, pickAccentColor, wrapText } from "./sceneRenderer";
 
 export const mockImageProvider: ImageProvider = {
   id: "mock",
@@ -24,6 +24,12 @@ export const mockImageProvider: ImageProvider = {
     drawSky(ctx, width, height, settings.timeOfDay || "day");
     drawSkyline(ctx, buildSkyline(seed, width, height), palette, width, height, 0);
     drawWeather(ctx, settings.weather || "", width, height, (() => { let s = seed; return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; })());
+
+    // The skyline behind this is nearly identical across similar prompts (same generic scene, subtly
+    // different building layout) — at thumbnail size that reads as "the same image" every time. This
+    // label band is what actually makes two mock renders distinguishable at a glance, e.g. a Cast &
+    // Props Turnaround's four angle shots, or two different entities' reference images side by side.
+    drawLabelBadge(ctx, width, height, deriveDistinguishingLabel(intent.prompt || ""), pickAccentColor(seed));
 
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.fillRect(0, height - 92, width, 92);

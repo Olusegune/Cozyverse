@@ -9,18 +9,56 @@ export type StylePreset = { value: string; label: string; fragment: string };
 
 const NONE: StylePreset = { value: "", label: "None", fragment: "" };
 
+// Shared closing clause for every diorama-family Art Style below. A single word like "diorama"
+// sitting inside a longer descriptive sentence isn't enough to actually get a diorama-framed
+// result — confirmed live: a fragment saying "...miniature diorama..." still rendered as a normal
+// full-scale illustration/photo (ground-level camera, no base, no toy-scale cues), because the
+// generation model needs explicit camera/composition instruction, not just a style adjective. The
+// existing "Three-Quarter Diorama" Camera preset already had the right language, but it's a
+// separate dropdown nobody would think to pair with Art Style — so that framing is folded directly
+// into every diorama-family preset's own fragment instead of depending on a second manual pick.
+const DIORAMA_FRAMING =
+  "shown from an elevated isometric three-quarter camera angle, framed as a physical tabletop diorama with a visible base or pedestal edge beneath the scene, shallow tilt-shift depth of field, small toy-like scale";
+
 export const ART_STYLE_PRESETS: StylePreset[] = [
   NONE,
-  { value: "cozy-3d-diorama", label: "Cozy 3D Diorama", fragment: "isometric miniature diorama, soft forms, warm lighting, comforting handcrafted details" },
-  { value: "cinematic-isometric", label: "Cinematic Isometric", fragment: "cinematic isometric rendering, dramatic light direction, atmospheric depth, film-like color grading" },
-  { value: "miniature-toy", label: "Miniature / Toy-Like", fragment: "collectible-model aesthetic, clean silhouettes, simplified geometry, tactile toy-like surfaces" },
-  { value: "handcrafted-clay", label: "Handcrafted Clay", fragment: "handcrafted clay miniature, rounded sculpted buildings and characters, softly imperfect edges" },
-  { value: "wooden-miniature", label: "Wooden Miniature", fragment: "carved wood miniature, warm wood-grain textures, handcrafted model-set feel" },
-  { value: "paper-craft", label: "Paper Craft / Layered Paper", fragment: "layered paper-craft diorama, folded-paper foliage, cut-paper architecture, visible dimensional layering" },
-  { value: "soft-pastel-3d", label: "Soft Pastel 3D", fragment: "soft pastel 3D rendering, gentle low-contrast palette, creamy dreamy light" },
+  { value: "cozy-3d-diorama", label: "Cozy 3D Diorama", fragment: `isometric miniature diorama, soft forms, warm lighting, comforting handcrafted details, ${DIORAMA_FRAMING}` },
+  // Retro Sci-Fi Cozy — same warm miniature-diorama DNA as Cozy 3D Diorama, with mid-century
+  // "world's fair" space-age motifs layered on top: domed architecture, portholes, small hovering
+  // vehicles, retro neon-tube signage. Deliberately warm and optimistic rather than gritty — kept
+  // distinct from Cyberpunk Neon below, which is the moody/dystopian version of a neon night scene.
+  {
+    value: "retro-scifi-cozy",
+    label: "Retro Sci-Fi Cozy",
+    fragment:
+      `retro sci-fi cozy miniature diorama, mid-century space-age retro-futurism, domed rooftops and porthole windows, warm glowing neon-tube signage, small rounded hover vehicles and a distant flying saucer or orbital pod, satellite dishes and antenna details, optimistic 1960s world's-fair charm rather than dystopian sci-fi, tactile matte materials, warm golden practical lighting mixing with cool starlit or neon-lit night sky, clean readable silhouettes, ${DIORAMA_FRAMING}`,
+  },
+  { value: "cinematic-isometric", label: "Cinematic Isometric", fragment: `cinematic isometric rendering, dramatic light direction, atmospheric depth, film-like color grading, ${DIORAMA_FRAMING}` },
+  { value: "miniature-toy", label: "Miniature / Toy-Like", fragment: `collectible-model aesthetic, clean silhouettes, simplified geometry, tactile toy-like surfaces, ${DIORAMA_FRAMING}` },
+  { value: "handcrafted-clay", label: "Handcrafted Clay", fragment: `handcrafted clay miniature, rounded sculpted buildings and characters, softly imperfect edges, ${DIORAMA_FRAMING}` },
+  { value: "wooden-miniature", label: "Wooden Miniature", fragment: `carved wood miniature, warm wood-grain textures, handcrafted model-set feel, ${DIORAMA_FRAMING}` },
+  { value: "paper-craft", label: "Paper Craft / Layered Paper", fragment: `layered paper-craft diorama, folded-paper foliage, cut-paper architecture, visible dimensional layering, ${DIORAMA_FRAMING}` },
+  { value: "soft-pastel-3d", label: "Soft Pastel 3D", fragment: `soft pastel 3D rendering, gentle low-contrast palette, creamy dreamy light, ${DIORAMA_FRAMING}` },
   { value: "anime-soft-3d", label: "Anime-Inspired Soft 3D", fragment: "anime-inspired stylized 3D, expressive soft lighting, romantic skies" },
-  { value: "storybook-3d", label: "Storybook 3D", fragment: "vintage storybook 3D illustration style, whimsical proportions, charming slightly magical color design" },
-  { value: "low-poly-cozy", label: "Low-Poly Cozy", fragment: "low-poly faceted geometry, simplified forms, warm and readable despite the facets" },
+  { value: "storybook-3d", label: "Storybook 3D", fragment: `vintage storybook 3D illustration style, whimsical proportions, charming slightly magical color design, ${DIORAMA_FRAMING}` },
+  { value: "low-poly-cozy", label: "Low-Poly Cozy", fragment: `low-poly faceted geometry, simplified forms, warm and readable despite the facets, ${DIORAMA_FRAMING}` },
+  // Broader, non-diorama art styles — for users who want Cozyverse's tools without the miniature/
+  // diorama framing baked into every image. Each fragment deliberately omits diorama/miniature
+  // language so it reads as a clean, independent visual direction.
+  { value: "photorealistic", label: "Photorealistic", fragment: "photorealistic rendering, natural full-scale proportions, lifelike materials and lighting, sharp detail" },
+  { value: "watercolor", label: "Watercolor Illustration", fragment: "hand-painted watercolor illustration, soft bleeding pigment edges, visible paper texture, gentle color washes" },
+  { value: "flat-vector", label: "Flat 2D Vector", fragment: "flat 2D vector illustration, clean bold shapes, minimal shading, limited confident color palette" },
+  { value: "pixel-art", label: "Pixel Art", fragment: "retro pixel art, visible pixel grid, limited color palette, crisp hard edges" },
+  { value: "claymation", label: "Claymation / Stop-Motion", fragment: "stop-motion claymation aesthetic, fingerprint-textured clay surfaces, slightly imperfect handmade forms, felt and wire props" },
+  { value: "ghibli-inspired", label: "Hand-Painted Anime Backdrop", fragment: "hand-painted anime background art, lush painterly detail, soft atmospheric lighting, nostalgic warmth" },
+  { value: "noir-comic", label: "Noir Comic Ink", fragment: "high-contrast noir comic-book inking, dramatic black shadows, cross-hatching, stark graphic silhouettes" },
+  { value: "oil-painting", label: "Classical Oil Painting", fragment: "classical oil painting, rich textured brushwork, deep glazed color, painterly light and shadow" },
+  { value: "cyberpunk-neon", label: "Cyberpunk Neon", fragment: "cyberpunk neon aesthetic, glowing signage, rain-slicked reflective surfaces, saturated magenta and cyan lighting" },
+  { value: "dark-fantasy", label: "Dark Fantasy", fragment: "dark fantasy illustration, moody desaturated palette, dramatic scale, ominous atmosphere" },
+  { value: "vintage-travel-poster", label: "Vintage Travel Poster", fragment: "vintage travel-poster illustration, bold flat color blocks, retro typography-era composition, sun-faded palette" },
+  { value: "cel-shaded-anime", label: "Cel-Shaded Anime", fragment: "cel-shaded anime style, clean line art, flat shadow blocks, vibrant saturated color" },
+  { value: "charcoal-sketch", label: "Charcoal Sketch", fragment: "loose charcoal sketch, expressive smudged shading, monochrome with selective warm highlights" },
+  { value: "isometric-pixel-city", label: "Isometric Pixel City", fragment: "isometric pixel-art cityscape, crisp tile-based geometry, saturated retro-game palette" },
 ];
 
 export const EDGE_STYLE_PRESETS: StylePreset[] = [
@@ -78,6 +116,10 @@ export const LIGHTING_PRESETS: StylePreset[] = [
   { value: "soft-overcast", label: "Soft Overcast", fragment: "large diffused overcast illumination with low contrast" },
   { value: "sunrise-glow", label: "Sunrise Glow", fragment: "cream, peach, pale gold and soft blue sunrise tones" },
   { value: "window-shaft", label: "Window Shaft", fragment: "a single defined beam of light entering the set as the dominant lighting idea" },
+  { value: "high-key-bright", label: "High-Key Bright", fragment: "bright even high-key lighting, minimal shadow, airy and clean" },
+  { value: "backlit-silhouette", label: "Backlit Silhouette", fragment: "strong backlight rimming the subject, foreground details falling into soft silhouette" },
+  { value: "storm-flicker", label: "Storm Flicker", fragment: "cold ambient storm light punctuated by brief lightning-flash highlights" },
+  { value: "aurora-glow", label: "Aurora Glow", fragment: "shifting aurora-colored ambient light washing cool green and violet across the scene" },
 ];
 
 export const COLOR_PRESETS: StylePreset[] = [
@@ -131,6 +173,10 @@ export type StyleStackControls = {
   colorPreset: string;
   atmospherePreset: string;
   cameraPreset: string;
+  /** Free-text style fragment, normally filled in by "Extract Style from Photo" (Gemini vision
+   * reverse-engineering a reference image into prompt language) rather than typed by hand — but
+   * left freely editable either way. Composed into the prompt like any other axis. */
+  customStyleDescription: string;
 };
 
 export const defaultStyleStack = (): StyleStackControls => ({
@@ -143,33 +189,39 @@ export const defaultStyleStack = (): StyleStackControls => ({
   colorPreset: "",
   atmospherePreset: "",
   cameraPreset: "",
+  customStyleDescription: "",
 });
 
-const STACK_AXES: Array<{ key: keyof StyleStackControls; presets: StylePreset[] }> = [
-  { key: "artStyle", presets: ART_STYLE_PRESETS },
-  { key: "edgeStyle", presets: EDGE_STYLE_PRESETS },
-  { key: "construction", presets: CONSTRUCTION_PRESETS },
-  { key: "material", presets: MATERIAL_PRESETS },
-  { key: "realism", presets: REALISM_PRESETS },
-  { key: "lightingPreset", presets: LIGHTING_PRESETS },
-  { key: "colorPreset", presets: COLOR_PRESETS },
-  { key: "atmospherePreset", presets: ATMOSPHERE_PRESETS },
-  { key: "cameraPreset", presets: CAMERA_PRESETS },
+/** The single shared definition of every Style Stack axis — key, its presets, and a UI label.
+ * Exported so any picker (Image Studio, the Cast & Props entity reference generator, anywhere else
+ * that needs to offer "match the project's visual style") renders the exact same axes in the exact
+ * same order from one source, instead of each screen keeping its own copy that can drift. */
+export const STYLE_STACK_AXES: Array<{ key: keyof StyleStackControls; label: string; presets: StylePreset[] }> = [
+  { key: "artStyle", label: "Art Style", presets: ART_STYLE_PRESETS },
+  { key: "edgeStyle", label: "Edge Style", presets: EDGE_STYLE_PRESETS },
+  { key: "construction", label: "Diorama Construction", presets: CONSTRUCTION_PRESETS },
+  { key: "material", label: "Material", presets: MATERIAL_PRESETS },
+  { key: "realism", label: "Realism Level", presets: REALISM_PRESETS },
+  { key: "lightingPreset", label: "Lighting Preset", presets: LIGHTING_PRESETS },
+  { key: "colorPreset", label: "Color Preset", presets: COLOR_PRESETS },
+  { key: "atmospherePreset", label: "Atmosphere", presets: ATMOSPHERE_PRESETS },
+  { key: "cameraPreset", label: "Camera / Composition", presets: CAMERA_PRESETS },
 ];
 
 /** Resolves every set axis in the stack to its prompt fragment, in a fixed, sensible order. */
 export function composeStyleStackFragments(stack: StyleStackControls): string[] {
   const fragments: string[] = [];
-  for (const { key, presets } of STACK_AXES) {
+  for (const { key, presets } of STYLE_STACK_AXES) {
     const value = stack[key];
     if (!value) continue;
     const preset = presets.find((p) => p.value === value);
     if (preset && preset.fragment) fragments.push(preset.fragment);
   }
+  if (stack.customStyleDescription.trim()) fragments.push(stack.customStyleDescription.trim());
   return fragments;
 }
 
 /** How many axes have a non-default selection — used to badge the collapsed Style Stack panel. */
 export function activeStackCount(stack: StyleStackControls): number {
-  return STACK_AXES.reduce((count, { key }) => count + (stack[key] ? 1 : 0), 0);
+  return STYLE_STACK_AXES.reduce((count, { key }) => count + (stack[key] ? 1 : 0), 0) + (stack.customStyleDescription.trim() ? 1 : 0);
 }

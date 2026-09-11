@@ -149,6 +149,11 @@ export async function geminiGenerateText(prompt: string): Promise<string> {
   return invoke("gemini_generate_text", { prompt });
 }
 
+/** Reverse-engineers a style-description prompt fragment from a reference photo via Gemini vision. */
+export async function geminiDescribeImageStyle(imageMime: string, imageBase64: string): Promise<string> {
+  return invoke("gemini_describe_image_style", { imageMime, imageBase64 });
+}
+
 export async function elevenLabsListVoices(): Promise<Array<{ voiceId: string; name: string }>> {
   return invoke("elevenlabs_list_voices");
 }
@@ -208,10 +213,40 @@ export async function saveVideoCopy(sourcePath: string, suggestedName: string): 
   return invoke("save_video_copy", { sourcePath, suggestedName });
 }
 
+/** Save-As for bytes generated client-side (the Postcard export's composited canvas image) rather
+ * than an existing file on disk. Returns null if the user cancels the dialog — not an error. */
+export async function saveGeneratedBytes(base64Data: string, suggestedName: string, filterExtension: string): Promise<string | null> {
+  return invoke("save_generated_bytes", { base64Data, suggestedName, filterExtension });
+}
+
 /** Converts a raw filesystem path (what render_scene_video/render_timeline_video return) into a
  * URL the webview's asset protocol can actually load in a <video> tag. */
 export function localFileUrl(path: string): string {
   return convertFileSrc(path);
+}
+
+// --- Ollama (local prompt assistant) --------------------------------------------------------
+
+export type OllamaSettings = { serverUrl: string; model: string };
+
+export async function ollamaGetSettings(): Promise<OllamaSettings> {
+  return invoke("ollama_get_settings");
+}
+
+export async function ollamaSaveSettings(settings: OllamaSettings): Promise<void> {
+  await invoke("ollama_save_settings", { settings });
+}
+
+export async function ollamaTestConnection(serverUrl: string): Promise<{ reachable: boolean; detail: string }> {
+  return invoke("ollama_test_connection", { serverUrl });
+}
+
+export async function ollamaListModels(serverUrl: string): Promise<string[]> {
+  return invoke("ollama_list_models", { serverUrl });
+}
+
+export async function ollamaGenerate(serverUrl: string, model: string, system: string, prompt: string): Promise<string> {
+  return invoke("ollama_generate", { serverUrl, model, system, prompt });
 }
 
 export type TimelineShotRenderInput = {
