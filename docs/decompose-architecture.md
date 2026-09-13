@@ -207,13 +207,23 @@ Overridable per‑run via `DecomposeOptions` (`tripoModelVersion`, `meshyModel`,
       "preferred": "library" | "tripo_fast" | …,             // library first, then a fast model, then any
       "attribution": { model, source, author, license, url } // only if a library model is attached
     }
-  ]
+  ],
+  "lightingPresets": {                                       // same 5 rigs as src/lib/lightPresets.ts
+    "studio": { hemisphere, ambient, key, fill, rim, background }, // (see lighting_presets_json in decompose.rs)
+    "goldenHour": { … }, "cozyWarm": { … }, "moonlitBlue": { … }, "overcast": { … }
+  }
 }
 ```
 
 The Blender add‑on places `models[preferred]` on a ground plane from `bbox`
 against the source image size. `.gltf` and `.glb` both import via
-`bpy.ops.import_scene.gltf`.
+`bpy.ops.import_scene.gltf`. It also reads `lightingPresets` and can recreate
+any one of the app's one-click lighting moods as real Sun lamps + world
+background (`apply_lighting_preset` in `cozyverse_bridge.py`) — a "Lighting"
+dropdown in the panel, defaulting to Studio. For Twinmotion/Unreal: import
+into Blender first, then `File > Export > FBX` — the lights carry over, since
+there's no separate bespoke exporter for either (not worth building two more
+integrations when both already consume Blender/FBX natively).
 
 ---
 
@@ -250,7 +260,8 @@ against the source image size. `.gltf` and `.glb` both import via
 * **AI turnaround** is single‑image img2img — `perspective`/`front` are observed,
   `back`/`left`/`right` are inferred even with the front fed back as a reference.
   The **Turnaround (.zip)** from a finished GLB is the exact/consistent option.
-* **fal engines** (`fal:*`) are wired but untested against a live fal key.
+* **fal engines** (`fal:*`) — verified against a live fal key (2026‑09‑11): a real AI turnaround
+  run completed and the output was spot‑checked as a genuine generated image.
 * **Poly Haven** has no rug/curtain/etc. models — `library_search` returns empty
   and the UI says so. A bundled Quaternius/Kenney CC0 pack is the planned second
   source (architecture already source‑agnostic).

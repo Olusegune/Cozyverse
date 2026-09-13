@@ -87,9 +87,10 @@ what runs out of the box and is what the whole app was validated against.
 
 | Provider  | Used for                                                                 | Get a key at      |
 |-----------|---------------------------------------------------------------------------|--------------------|
-| fal.ai    | Image generation + editing (FLUX, Nano Banana Edit), image-to-video (Wan 2.7), ambience/music/SFX (CassetteAI) | fal.ai/dashboard/keys |
+| fal.ai    | Image generation + editing (FLUX, Nano Banana Edit, GPT Image 2/2.5), image-to-video (Wan 2.7), ambience/music/SFX (CassetteAI) | fal.ai/dashboard/keys |
 | KIE AI    | Image generation (Nano Banana, GPT Image), text-to-video (Kling)         | kie.ai             |
 | WaveSpeed | Image generation (FLUX), dialogue speech (MiniMax Speech 2.8 Turbo)      | wavespeed.ai       |
+| OpenAI    | Native GPT Image 2/2.5 (text-to-image + edit) — requires Organization Verification, unlike the fal route above | platform.openai.com |
 
 Keys are stored in the **Windows Credential Manager** via the OS keyring — never inside a project
 file, never synced anywhere. Once a key is connected, every studio gets an "Auto (connected
@@ -98,6 +99,10 @@ provider)" rendering option alongside Mock:
 - **Image Studio** — text-to-image master images, and instruction-following edit variants (change
   weather/time/lighting/season while keeping the subject, via fal's Nano Banana Edit — plain
   strength-blended img2img can't do this reliably, so variants specifically route to an edit model).
+  A fourth mode, **Sketch**, lets you hand-draw a rough layout on an in-app canvas (undo/clear/brush)
+  and describe what it should become — GPT Image 2.5 Flare Edit turns the sketch into a finished
+  scene, the same idea as ChatGPT's own @Sketch tool (`src/components/SketchCanvas.tsx`,
+  `generateSketchAssembly` in the store). An optional second reference image blends in a style.
 - **Motion Studio** — real image-to-video (fal's Wan 2.7): the source frame is read off disk and
   sent as a base64 data URI, no external hosting/upload step needed.
 - **Audio Studio → Ambience/Music/SFX** — CassetteAI's music and sound-effects models on fal.
@@ -145,6 +150,24 @@ option.
 The script path is resolved next to the executable or via `COZY_DECOMPOSE_SCRIPT`.
 
 **Step-by-step tutorial with screenshots:** [`docs/decompose-to-3d-tutorial/`](docs/decompose-to-3d-tutorial/README.md).
+
+### Free Models (Asset Library) and combined-scene export
+
+Alongside AI generation, a finished decompose job's **Free Models** tab searches Poly Haven's CC0
+catalog by class/synonym/tag match for each detected object — no spend, real attribution written to
+`CREDITS.txt`. When the CLIP checkpoint is already cached (pre-fetched by both "Quick setup" and
+"Full setup" alongside the models they already warm) and a cutout is available, results are further
+re-ranked by visual similarity to that object's own cutout via a short-lived Python subprocess
+(`clip_rerank.py`) — text-only ranking otherwise, silently, with no visible difference either way.
+
+A finished job also gets a **Combined scene (.glb)** export: every object's preferred model is
+loaded, placed on a virtual floor from its 2D bounding box, and merged into one positioned binary
+glTF (`src/lib/sceneMerge.ts`) — the exact same bbox → position/scale math the Blender bridge uses,
+so an in-app export and a Blender import lay objects out identically.
+
+The in-app 3D preview (`ModelViewer`) also has **one-click lighting presets** — Studio, Golden Hour,
+Cozy Warm, Moonlit Blue, Overcast Soft (`src/lib/lightPresets.ts`) — applied as a live prop change,
+no scene reload.
 
 ## Local AI features (Ollama)
 
@@ -284,11 +307,13 @@ Two real bugs were caught and fixed during these passes, not just theorized abou
 - **Single active scene per Cozyverse is the tested path**, though the schema supports multiple
   scenes (`project.scenes[]`) — the Scene Composer lets you create and switch between them, but most
   of the app assumes you're working with one at a time.
-- **No automated frontend test runner is configured** (no vitest/jest). Pure logic modules
-  (`sceneMatching.ts`, `exportFormat.ts`, the generation router) were validated with ad hoc Node
-  smoke tests during development rather than a permanent test suite — see git history for what was
-  checked. The Rust backend does have a real `cargo test` suite (`src-tauri/src/lib.rs`,
-  `providers.rs`), which is the primary safety net and should be extended for new Rust commands.
+- **Frontend test coverage is minimal.** `npm test` runs a small Vitest suite (`src/lib/lightPresets.test.ts`,
+  `src/store/payloadGuard.test.ts`) covering the pure-logic modules with real regression risk — most
+  of the frontend (`sceneMatching.ts`, `exportFormat.ts`, the generation router, every component)
+  was validated with ad hoc Node smoke tests and manual click-through during development rather than
+  permanent tests — see git history for what was checked. The Rust backend has a much more complete
+  `cargo test` suite (`src-tauri/src/lib.rs`, `providers.rs`), which is the primary safety net and
+  should be extended for new Rust commands.
 
 ## Export format
 

@@ -1132,6 +1132,43 @@ async fn fan_out(
 /// A DCC-agnostic description of the finished batch — one GLB per object plus
 /// the 2D bbox and source-image size so a Blender / Unreal / Unity importer can
 /// lay the pieces back out as a scene. Written to the job's work folder.
+/// The same 5 lighting rigs as `src/lib/lightPresets.ts`, translated to scene.json so the
+/// Blender bridge can recreate the in-app "one-click lighting" moods on import instead of relying
+/// on Blender's bare default lighting. Kept in sync by hand (same pattern as the bbox→position/
+/// scale math shared with cozyverse_bridge.py) — if you change one, change the other. Color ints
+/// are 0xRRGGBB, position is glTF/three.js-space [x, y, z] (Y up); the Blender add-on converts to
+/// Blender's Z-up when it builds the actual light objects.
+fn lighting_presets_json() -> Value {
+    // (id, sky, ground, hemiIntensity, ambientColor, ambientIntensity,
+    //  keyColor, keyIntensity, keyPos, fillColor, fillIntensity, fillPos,
+    //  rimColor, rimIntensity, rimPos, background)
+    let presets: [(&str, u32, u32, f32, u32, f32, u32, f32, [f32; 3], u32, f32, [f32; 3], u32, f32, [f32; 3], Option<u32>); 5] = [
+        ("studio", 0xffffff, 0x505060, 3.2, 0xffffff, 0.6, 0xffffff, 3.0, [3.0, 5.0, 4.0], 0xffffff, 1.4, [-4.0, 2.0, -3.0], 0xffffff, 1.0, [0.0, 3.0, -5.0], None),
+        ("goldenHour", 0xffb870, 0x3a2a1a, 2.6, 0xffddaa, 0.5, 0xffb347, 3.6, [6.0, 2.5, 3.0], 0xff8f6b, 1.1, [-3.0, 1.5, -2.0], 0xffe1a8, 1.3, [-1.0, 2.0, -5.0], Some(0x2a1c14)),
+        ("cozyWarm", 0xffddb0, 0x40301f, 2.4, 0xffcc99, 0.9, 0xffbb77, 2.4, [2.0, 4.0, 3.0], 0xff9955, 1.6, [-3.0, 1.0, -1.0], 0xffe0b0, 0.8, [0.0, 2.0, -4.0], Some(0x241a12)),
+        ("moonlitBlue", 0x6b85c9, 0x0a0f1e, 2.2, 0x8ea6d8, 0.4, 0x9fb8ea, 1.8, [-3.0, 5.0, 4.0], 0x3a5a9a, 1.2, [4.0, 1.5, -2.0], 0xc7d9ff, 1.4, [0.0, 3.0, -5.0], Some(0x0a0e1a)),
+        ("overcast", 0xd8dee8, 0x606870, 3.0, 0xe8ecf2, 1.0, 0xf0f2f6, 1.8, [2.0, 6.0, 2.0], 0xe0e4ea, 1.6, [-2.0, 4.0, -2.0], 0xffffff, 0.5, [0.0, 2.0, -4.0], Some(0x3a3e44)),
+    ];
+    Value::Object(
+        presets
+            .into_iter()
+            .map(|(id, sky, ground, hemi_i, amb_c, amb_i, key_c, key_i, key_p, fill_c, fill_i, fill_p, rim_c, rim_i, rim_p, bg)| {
+                (
+                    id.to_string(),
+                    json!({
+                        "hemisphere": { "sky": sky, "ground": ground, "intensity": hemi_i },
+                        "ambient": { "color": amb_c, "intensity": amb_i },
+                        "key": { "color": key_c, "intensity": key_i, "position": key_p },
+                        "fill": { "color": fill_c, "intensity": fill_i, "position": fill_p },
+                        "rim": { "color": rim_c, "intensity": rim_i, "position": rim_p },
+                        "background": bg,
+                    }),
+                )
+            })
+            .collect(),
+    )
+}
+
 fn write_scene_manifest(project_dir: &Path, job: &DecomposeJob) -> Result<(), String> {
     let assets_root = project_dir.join("assets");
     let abs = |rel: &str| assets_root.join(rel).to_string_lossy().replace('\\', "/");
@@ -1201,6 +1238,7 @@ fn write_scene_manifest(project_dir: &Path, job: &DecomposeJob) -> Result<(), St
         "sourceImage": abs(&job.image_path),
         "objects": objects,
         "credits": credits,
+        "lightingPresets": lighting_presets_json(),
     });
     let path = project_dir
         .join("assets")

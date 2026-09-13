@@ -9,14 +9,88 @@ bl_info = {
 }
 
 import json
+import math
 import os
 
 import bpy
-from bpy.props import StringProperty, FloatProperty
-from mathutils import Vector
+from bpy.props import StringProperty, FloatProperty, EnumProperty
+from mathutils import Color, Vector
 
 # Room the diorama is spread across, in Blender units.
 DEFAULT_ROOM = 4.0
+
+# Must match the keys Cozyverse Studio writes into scene.json's "lightingPresets"
+# (src-tauri/src/decompose.rs's lighting_presets_json(), itself translated from
+# src/lib/lightPresets.ts) — same one-click moods available in the in-app 3D viewer,
+# recreated here as real Blender lights + world background instead of Blender's bare defaults.
+LIGHTING_PRESET_ITEMS = [
+    ("none", "None (Blender defaults)", "Don't touch lighting or world background"),
+    ("studio", "Studio", "Neutral, even light — matches the in-app default"),
+    ("goldenHour", "Golden Hour", "Warm low sun, long amber shadows"),
+    ("cozyWarm", "Cozy Warm", "Soft warm interior glow"),
+    ("moonlitBlue", "Moonlit Blue", "Cool blue night lighting"),
+    ("overcast", "Overcast Soft", "Flat, soft, shadowless daylight"),
+]
+
+
+def _srgb_int_to_linear_color(value):
+    """0xRRGGBB (sRGB, same as three.js hex colors) -> a linear-space Color Blender lights want."""
+    r = ((value >> 16) & 0xFF) / 255.0
+    g = ((value >> 8) & 0xFF) / 255.0
+    b = (value & 0xFF) / 255.0
+    c = Color((r, g, b))
+    # Blender's Color has no built-in sRGB->linear; approximate with the standard gamma curve,
+    # good enough for recreating a *mood*, not a colorimetrically exact match.
+    to_linear = lambda ch: ch / 12.92 if ch <= 0.04045 else ((ch + 0.055) / 1.055) ** 2.4
+    return Color((to_linear(c.r), to_linear(c.g), to_linear(c.b)))
+
+
+def _three_to_blender(pos):
+    """three.js/glTF is Y-up (x, y, z); Blender is Z-up. Swapping y/z (with the sign the rest of
+    this add-on already uses for object placement) carries the same spatial layout across."""
+    x, y, z = pos
+    return Vector((x, z, y))
+
+
+def _add_sun(name, preset_light, energy_scale):
+    light_data = bpy.data.lights.new(name=name, type="SUN")
+    light_data.color = _srgb_int_to_linear_color(preset_light["color"])
+    light_data.energy = max(preset_light["intensity"] * energy_scale, 0.05)
+    light_obj = bpy.data.objects.new(name, light_data)
+    bpy.context.scene.collection.objects.link(light_obj)
+    light_obj.location = _three_to_blender(preset_light["position"])
+    direction = -light_obj.location.normalized() if light_obj.location.length > 1e-4 else Vector((0, 0, -1))
+    light_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    return light_obj
+
+
+def apply_lighting_preset(preset_id, presets, room_size):
+    """Create real Blender lights + set the world background from one of scene.json's
+    lightingPresets — the Blender-side half of Cozyverse's one-click lighting. Sun lamps are used
+    for all three (key/fill/rim) since they're directional like the app's own DirectionalLights;
+    intensity is scaled by room_size so the mood holds regardless of diorama scale."""
+    preset = presets.get(preset_id)
+    if not preset:
+        return None
+    energy_scale = max(room_size / DEFAULT_ROOM, 0.1)
+    group = bpy.data.objects.new("Cozyverse Lighting (%s)" % preset_id, None)
+    bpy.context.scene.collection.objects.link(group)
+    for role, energy_mul in (("key", 1.0), ("fill", 0.7), ("rim", 0.6)):
+        light = _add_sun("Cozyverse %s" % role, preset[role], energy_scale * energy_mul)
+        light.parent = group
+
+    world = bpy.context.scene.world or bpy.data.worlds.new("Cozyverse World")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    bg = world.node_tree.nodes.get("Background")
+    if bg is not None:
+        if preset.get("background") is not None:
+            linear = _srgb_int_to_linear_color(preset["background"])
+            bg.inputs[0].default_value = (linear.r, linear.g, linear.b, 1.0)
+        ambient = preset.get("ambient", {})
+        # Ambient intensity roughly maps to the world's own light contribution.
+        bg.inputs[1].default_value = max(ambient.get("intensity", 1.0) * 0.3, 0.02)
+    return group
 
 
 def _load_image_size(path):
@@ -123,7 +197,16 @@ class COZY_OT_import_scene(bpy.types.Operator):
             imported.location.z -= mn.z  # sit on the floor
             placed += 1
 
+        lit = False
+        if props.lighting_preset != "none":
+            presets = data.get("lightingPresets", {})
+            lit = apply_lighting_preset(props.lighting_preset, presets, room) is not None
+            if not lit:
+                self.report({"WARNING"}, "This scene.json has no lightingPresets — re-export from a current Cozyverse Studio build to get lighting data.")
+
         msg = "Cozyverse: placed %d object(s)" % placed
+        if lit:
+            msg += " · lighting: %s" % props.lighting_preset
         if credits:
             uniq = sorted(set(credits))
             msg += " · library assets: " + ", ".join(uniq)
@@ -143,14 +226,25 @@ class COZY_PT_panel(bpy.types.Panel):
         props = context.scene.cozyverse
         layout.prop(props, "scene_json", text="")
         layout.prop(props, "room_size")
+        layout.prop(props, "lighting_preset", text="Lighting")
         layout.operator("cozyverse.import_scene", icon="IMPORT")
         layout.label(text="Pick the scene.json from")
         layout.label(text="<project>/assets/decompose/<job>/")
+        layout.separator()
+        layout.label(text="For Twinmotion / Unreal:", icon="INFO")
+        layout.label(text="File > Export > FBX after import —")
+        layout.label(text="the lights above carry over with it.")
 
 
 class COZY_Props(bpy.types.PropertyGroup):
     scene_json: StringProperty(name="scene.json", subtype="FILE_PATH")
     room_size: FloatProperty(name="Room size", default=DEFAULT_ROOM, min=0.5, max=50.0)
+    lighting_preset: EnumProperty(
+        name="Lighting",
+        description="Recreate one of Cozyverse Studio's one-click lighting moods as real Blender lights + world background",
+        items=LIGHTING_PRESET_ITEMS,
+        default="studio",
+    )
 
 
 _classes = (COZY_OT_import_scene, COZY_PT_panel, COZY_Props)
