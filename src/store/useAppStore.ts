@@ -183,6 +183,30 @@ function extensionFromDataUrl(dataUrl: string): string {
   return match ? match[1] : "png";
 }
 
+/** Base64 is ~4/3 the decoded size — good enough for a payload-size guard without decoding. */
+export function approximateDataUrlBytes(dataUrl: string): number {
+  const commaIndex = dataUrl.indexOf(",");
+  const encoded = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+  return Math.floor((encoded.length * 3) / 4);
+}
+
+const MAX_REFERENCE_PAYLOAD_BYTES = 60 * 1024 * 1024; // 60MB total across every reference image sent in one call
+
+/** Guards every multi-reference-image call (Shot Mode, Sketch assembly) against sending an
+ * unbounded pile of full-res data URIs in one request — flagged in a security review as having
+ * no cap anywhere in this flow. A handful of real photos never gets near this; it only fires on
+ * something that would otherwise silently balloon the request across Tauri's IPC boundary and the
+ * Rust HTTP client with no feedback to the user about why the call is slow or failing. */
+export function assertReferencePayloadWithinLimit(dataUrls: string[]): void {
+  const totalBytes = dataUrls.reduce((sum, url) => sum + approximateDataUrlBytes(url), 0);
+  if (totalBytes > MAX_REFERENCE_PAYLOAD_BYTES) {
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
+    throw new Error(
+      `Reference images total ${totalMB}MB, over the ${MAX_REFERENCE_PAYLOAD_BYTES / (1024 * 1024)}MB limit for one request — use fewer or smaller images.`,
+    );
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   summaries: [],
   loadingSummaries: false,
@@ -455,6 +479,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const referenceAssets = [sourceAsset, ...(additionalReferenceAssetIds || []).map((id) => project.assets.find((asset) => asset.id === id)).filter((asset): asset is Asset => Boolean(asset))];
       const referenceUrls = await Promise.all(referenceAssets.map((asset) => api.assetAsDataUrl(dirName, asset.filePath)));
+      assertReferencePayloadWithinLimit(referenceUrls);
       const sourceDataUrl = referenceUrls[0];
       // image_url (singular) keeps every non-multi-reference model working exactly as before;
       // reference_image_urls carries the full set for models whose provider mapping (fal_input /
@@ -560,6 +585,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const referenceUrls = [sketchDataUrl, ...(styleAsset ? [await api.assetAsDataUrl(dirName, styleAsset.filePath)] : [])];
+      assertReferencePayloadWithinLimit(referenceUrls);
       const url = await runRealGeneration(model, {
         prompt,
         image_url: sketchDataUrl,

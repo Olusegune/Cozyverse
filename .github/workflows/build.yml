@@ -1,0 +1,48 @@
+name: Build check
+
+# Windows-only: the Rust side depends on keyring's "windows-native" backend
+# (src-tauri/Cargo.toml), so this can't build on macOS/Linux runners without
+# first reworking that dependency per-OS. This still catches the thing that
+# actually matters day to day — a broken commit — before it reaches an
+# installer, which is what was missing.
+on:
+  push:
+    branches: [main, decompose-golden-path]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Type-check + build frontend
+        run: npm run build
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Rust tests
+        run: cargo test --release
+        working-directory: src-tauri
+
+      # Debug build here (not --release) — this just needs to catch a compile
+      # break fast; a release build + installer is a separate concern for a
+      # future release workflow, not every push/PR.
+      - name: Rust build
+        run: cargo build
+        working-directory: src-tauri
