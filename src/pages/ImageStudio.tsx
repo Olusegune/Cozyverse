@@ -230,14 +230,14 @@ export function ImageStudioPage() {
         <p className="text-sm text-slate-400 mt-1">Generate the master image, then create controlled variants. Every generation is kept in history — nothing is overwritten.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6">
         <div className="rounded-xl border border-base-700 bg-base-900 p-4 h-fit space-y-4">
-          <div className="flex rounded-lg border border-base-600 overflow-hidden text-sm">
-            <button className={`flex-1 py-2 ${mode === "master" ? "bg-accent-500 text-accentText" : "text-slate-400"}`} onClick={() => setMode("master")}>
-              Master Image
+          <div className="flex rounded-lg border border-base-600 overflow-hidden text-[13px]">
+            <button className={`flex-1 py-2 px-1 whitespace-nowrap ${mode === "master" ? "bg-accent-500 text-accentText" : "text-slate-400"}`} onClick={() => setMode("master")}>
+              Master
             </button>
             <button
-              className={`flex-1 py-2 ${mode === "variant" ? "bg-accent-500 text-accentText" : "text-slate-400"}`}
+              className={`flex-1 py-2 px-1 whitespace-nowrap ${mode === "variant" ? "bg-accent-500 text-accentText" : "text-slate-400"}`}
               onClick={() => {
                 setMode("variant");
                 if (rawPromptEnabled) {
@@ -249,7 +249,7 @@ export function ImageStudioPage() {
               Variant
             </button>
             <button
-              className={`flex-1 py-2 ${mode === "shot" ? "bg-accent-500 text-accentText" : "text-slate-400"}`}
+              className={`flex-1 py-2 px-1 whitespace-nowrap ${mode === "shot" ? "bg-accent-500 text-accentText" : "text-slate-400"}`}
               onClick={() => {
                 setMode("shot");
                 if (rawPromptEnabled) {
@@ -261,7 +261,7 @@ export function ImageStudioPage() {
               Shot
             </button>
             <button
-              className={`flex-1 py-2 ${mode === "sketch" ? "bg-accent-500 text-accentText" : "text-slate-400"}`}
+              className={`flex-1 py-2 px-1 whitespace-nowrap ${mode === "sketch" ? "bg-accent-500 text-accentText" : "text-slate-400"}`}
               onClick={() => {
                 setMode("sketch");
                 if (rawPromptEnabled) {

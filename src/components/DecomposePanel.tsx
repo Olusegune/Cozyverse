@@ -601,9 +601,11 @@ function ConfirmBlock({
                             {lib.author ?? lib.source}
                           </span>
                           <button
-                            onClick={() =>
-                              dirName && void libraryDetach(dirName, job.id, a.id).catch(() => {})
-                            }
+                            onClick={() => {
+                              if (!dirName) return;
+                              setErr(null);
+                              void libraryDetach(dirName, job.id, a.id).catch((e) => setErr(`Remove pick: ${e instanceof Error ? e.message : String(e)}`));
+                            }}
                             className="text-slate-500 hover:text-slate-300"
                           >
                             remove
@@ -665,7 +667,11 @@ function ConfirmBlock({
 
             {attachedCount > 0 && (
               <button
-                onClick={() => dirName && void libraryFinalize(dirName, job.id).catch(() => {})}
+                onClick={() => {
+                  if (!dirName) return;
+                  setErr(null);
+                  void libraryFinalize(dirName, job.id).catch((e) => setErr(`Finalize: ${e instanceof Error ? e.message : String(e)}`));
+                }}
                 className="mt-2 rounded-md bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-500"
               >
                 Use {attachedCount} library asset{attachedCount === 1 ? "" : "s"} &amp; finish
@@ -744,6 +750,15 @@ function JobCard({
 
   const [combining, setCombining] = useState(false);
   const [combineErr, setCombineErr] = useState<string | null>(null);
+  // Shared by the small one-shot job actions below (finalize / cancel) — each was found during
+  // this session's QA pass swallowing failures into an empty .catch(() => {}), same silent-failure
+  // shape as the runCombine/runTurnaround bugs fixed earlier: the button just does nothing with no
+  // explanation. One shared slot is enough since only one of these runs at a time per job card.
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const runAction = (label: string, action: Promise<unknown>) => {
+    setActionErr(null);
+    action.catch((e) => setActionErr(`${label}: ${e instanceof Error ? e.message : String(e)}`));
+  };
   const runCombine = async () => {
     if (!dirName || combining) return;
     setCombining(true);
@@ -835,7 +850,7 @@ function JobCard({
           </span>
           {job.status === "modeling" && (
             <button
-              onClick={() => dirName && void cancelJob(dirName, job.id).catch(() => {})}
+              onClick={() => dirName && runAction("Stop", cancelJob(dirName, job.id))}
               className="text-[11px] text-slate-500 hover:text-red-400"
               title="Stop this fan-out. Models already finished are kept; the rest are cancelled."
             >
@@ -1082,6 +1097,7 @@ function JobCard({
               </button>
             )}
             {combineErr && <p className="w-full text-[11px] text-red-400">{combineErr}</p>}
+            {actionErr && <p className="w-full text-[11px] text-red-400">{actionErr}</p>}
             <button
               onClick={() => setShowUsage((v) => !v)}
               className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300"
@@ -1144,6 +1160,11 @@ function RuntimeCard() {
   const setup = useSetupProgress();
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
   const [busy, setBusy] = useState<"lite" | "full" | null>(null);
+  // Kept separate from `busy` (which clears on failure so the spinner stops) so a failed
+  // "Full setup" offers "Retry full" rather than always retrying "lite" regardless of what was
+  // actually running — found during this session's QA pass: the retry button ignored which mode
+  // had failed and silently downgraded every retry to the quick pipeline.
+  const [lastMode, setLastMode] = useState<"lite" | "full">("lite");
 
   const refresh = () => void decomposeRuntimeStatus().then(setStatus);
   useEffect(refresh, []);
@@ -1156,6 +1177,7 @@ function RuntimeCard() {
 
   const run = (mode: "lite" | "full") => {
     setBusy(mode);
+    setLastMode(mode);
     void setupDecomposeRuntime(mode).catch(() => setBusy(null));
   };
 
@@ -1183,8 +1205,8 @@ function RuntimeCard() {
     return (
       <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/5 p-2.5 text-xs text-red-400">
         Setup failed: {setup.error}{" "}
-        <button onClick={() => run("lite")} className="underline hover:text-red-300">
-          Retry quick
+        <button onClick={() => run(lastMode)} className="underline hover:text-red-300">
+          Retry {lastMode === "full" ? "full" : "quick"}
         </button>
       </div>
     );
