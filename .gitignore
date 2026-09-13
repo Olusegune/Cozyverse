@@ -12,3 +12,8 @@ __pycache__/
 # stray model weights downloaded by ultralytics/rembg into CWD
 *.pt
 weights/
+
+# updater signing key — must NEVER be committed; lives at %USERPROFILE%\.cozyverse-updater.key,
+# outside this repo, but this guards against it ever being copied in by habit. See docs/auto-updater.md.
+*.key
+!*.key.pub

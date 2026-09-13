@@ -532,7 +532,63 @@ fn build_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> 
     MenuBuilder::new(app).item(&file_menu).item(&help_menu).build()
 }
 
+/// Where crash.log lives — same base directory the managed Python venv uses
+/// (see decompose_setup::pyenv_dir), so there's one obvious place to look.
+fn crash_log_path() -> PathBuf {
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
+    PathBuf::from(base).join("Cozyverse Studio")
+}
+
+/// A release build runs with `windows_subsystem = "windows"` (no console), so the
+/// default panic hook's stderr message is completely invisible — a single unwrap()
+/// on a bad path used to just make the whole app vanish with zero trace. This
+/// replaces that with: write the panic (message + location + a backtrace when
+/// RUST_BACKTRACE is set) to a persistent crash.log, and show a native dialog so
+/// the user actually sees *something* happened, instead of silence.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // Still run the default hook — free in debug builds (visible console),
+        // harmless in release (goes nowhere, costs nothing).
+        default_hook(info);
+
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown location".into());
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "(no panic message)".into());
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let entry = format!("[{timestamp}] panic at {location}: {message}\n");
+
+        let dir = crash_log_path();
+        if std::fs::create_dir_all(&dir).is_ok() {
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("crash.log")) {
+                let _ = file.write_all(entry.as_bytes());
+            }
+        }
+
+        rfd::MessageDialog::new()
+            .set_title("Cozyverse Studio crashed")
+            .set_description(format!(
+                "Something went wrong and the app needs to close.\n\nDetails were saved to:\n{}\\crash.log\n\n{message}",
+                dir.display()
+            ))
+            .set_level(rfd::MessageLevel::Error)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+    }));
+}
+
 pub fn run() {
+    install_panic_hook();
     tauri::Builder::default()
         .setup(|app| {
             let menu = build_menu(app)?;
