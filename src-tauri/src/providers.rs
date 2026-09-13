@@ -461,11 +461,23 @@ fn aspect_ratio_to_openai_size(ratio: &str) -> &'static str {
     }
 }
 
-/// Text-to-image via OpenAI's gpt-image-2 — synchronous JSON call, GPT image models always return
-/// base64 (never a URL) per OpenAI's docs, so no separate download step is needed.
-async fn openai_generate_image(prompt: &str, aspect_ratio: &str, key: &str) -> Result<String, String> {
+/// Maps a modelRegistry id (e.g. "openai-native/gpt-image-2.5-flare") to the literal model
+/// string OpenAI's API expects. Unrecognized ids fall back to "gpt-image-2" — the previous
+/// hardcoded behavior — rather than failing, since a stale/local id shouldn't hard-error.
+fn openai_model_from_id(model_id: &str) -> &'static str {
+    match model_id {
+        "openai-native/gpt-image-2.5-flare" | "openai-native/gpt-image-2.5-flare-edit" => "gpt-image-2.5-flare",
+        "openai-native/gpt-image-2.5-sunburst" | "openai-native/gpt-image-2.5-sunburst-edit" => "gpt-image-2.5-sunburst",
+        _ => "gpt-image-2",
+    }
+}
+
+/// Text-to-image via OpenAI's gpt-image-2 / gpt-image-2.5 — synchronous JSON call, GPT image
+/// models always return base64 (never a URL) per OpenAI's docs, so no separate download step
+/// is needed.
+async fn openai_generate_image(prompt: &str, aspect_ratio: &str, model: &str, key: &str) -> Result<String, String> {
     let client = provider_http_client()?;
-    let body = serde_json::json!({ "model": "gpt-image-2", "prompt": prompt, "size": aspect_ratio_to_openai_size(aspect_ratio), "n": 1 });
+    let body = serde_json::json!({ "model": model, "prompt": prompt, "size": aspect_ratio_to_openai_size(aspect_ratio), "n": 1 });
     let response = client.post("https://api.openai.com/v1/images/generations").header("Authorization", format!("Bearer {key}")).json(&body).send().await.map_err(|error| format!("OpenAI connection failed: {error}"))?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
@@ -477,11 +489,11 @@ async fn openai_generate_image(prompt: &str, aspect_ratio: &str, key: &str) -> R
 
 /// Image editing via OpenAI's /v1/images/edits — unlike every other endpoint here, this is
 /// multipart/form-data (a file upload), not JSON, since that's what OpenAI's API requires for edits.
-async fn openai_edit_image(prompt: &str, aspect_ratio: &str, image_mime: &str, image_bytes: Vec<u8>, key: &str) -> Result<String, String> {
+async fn openai_edit_image(prompt: &str, aspect_ratio: &str, image_mime: &str, image_bytes: Vec<u8>, model: &str, key: &str) -> Result<String, String> {
     let extension = if image_mime == "image/png" { "png" } else { "jpg" };
     let image_part = reqwest::multipart::Part::bytes(image_bytes).file_name(format!("source.{extension}")).mime_str(image_mime).map_err(|error| error.to_string())?;
     let form = reqwest::multipart::Form::new()
-        .text("model", "gpt-image-2")
+        .text("model", model.to_owned())
         .text("prompt", prompt.to_owned())
         .text("size", aspect_ratio_to_openai_size(aspect_ratio))
         .part("image[]", image_part);
@@ -584,7 +596,7 @@ pub(crate) async fn edit_subject_image(
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(b64)
                 .map_err(|e| format!("Could not decode the subject image: {e}"))?;
-            openai_edit_image(prompt, "1:1", mime, bytes, &key).await
+            openai_edit_image(prompt, "1:1", mime, bytes, "gpt-image-2", &key).await
         }
         other => Err(format!("Unknown AI turnaround engine '{other}'")),
     }
@@ -720,15 +732,24 @@ fn aspect_ratio_to_fal_image_size(ratio: &str) -> Value {
     }
 }
 
+/// GPT Image 2.5's fal text-to-image endpoints (Flare and Sunburst) — verified against fal's own
+/// OpenAPI schema (https://fal.ai/models/openai/gpt-image-2.5/{flare,sunburst}/text-to-image):
+/// same "prompt" + "image_size" (named-preset-or-{width,height}) shape as gpt-image-2/flux-dev.
+const GPT_IMAGE_25_TEXT_TO_IMAGE: [&str; 2] =
+    ["openai/gpt-image-2.5/flare/text-to-image", "openai/gpt-image-2.5/sunburst/text-to-image"];
+/// GPT Image 2.5's fal edit endpoints — same "image_urls" (up to 16) + "image_size" shape as
+/// gpt-image-2/edit, per fal's OpenAPI schema for .../flare/edit and .../sunburst/edit.
+const GPT_IMAGE_25_EDIT: [&str; 2] = ["openai/gpt-image-2.5/flare/edit", "openai/gpt-image-2.5/sunburst/edit"];
+
 fn fal_input(model_id: &str, source: &Value) -> Result<Value, String> {
     let mut input = source.as_object().cloned().ok_or("Generation input must be an object")?;
-    if model_id == "fal-ai/flux/dev" || model_id == "openai/gpt-image-2" {
+    if model_id == "fal-ai/flux/dev" || model_id == "openai/gpt-image-2" || GPT_IMAGE_25_TEXT_TO_IMAGE.contains(&model_id) {
         // Plain text-to-image: our generic aspect ratio maps to fal's image_size enum. gpt-image-2
-        // uses the exact same image_size enum shape as flux/dev on fal.
+        // and gpt-image-2.5 use the exact same image_size enum shape as flux/dev on fal.
         if let Some(Value::String(ratio)) = input.remove("aspect_ratio") {
             input.insert("image_size".into(), aspect_ratio_to_fal_image_size(&ratio));
         }
-    } else if model_id == "fal-ai/nano-banana/edit" || model_id == "openai/gpt-image-2/edit" {
+    } else if model_id == "fal-ai/nano-banana/edit" || model_id == "openai/gpt-image-2/edit" || GPT_IMAGE_25_EDIT.contains(&model_id) {
         // Both edit models take a plural "image_urls" array. Image Studio's Shot mode can send
         // several reference images via the generic "reference_image_urls" key (same convention as
         // video Shot Mode); the plain single-image Variant flow only ever sends "image_url", which
@@ -739,7 +760,7 @@ fn fal_input(model_id: &str, source: &Value) -> Result<Value, String> {
             input.insert("image_urls".into(), Value::Array(vec![url]));
         }
         input.remove("strength");
-        if model_id == "openai/gpt-image-2/edit" {
+        if model_id == "openai/gpt-image-2/edit" || GPT_IMAGE_25_EDIT.contains(&model_id) {
             if let Some(Value::String(ratio)) = input.remove("aspect_ratio") {
                 input.insert("image_size".into(), aspect_ratio_to_fal_image_size(&ratio));
             }
@@ -1251,14 +1272,15 @@ pub async fn submit_generation(app: AppHandle, request: GenerationRequest) -> Re
         // endpoint; plain generation uses the JSON /images/generations endpoint.
         "openai" => {
             let key = provider_key("openai")?;
+            let model = openai_model_from_id(&request.model_id);
             let prompt = request.input.get("prompt").and_then(Value::as_str).unwrap_or_default();
             let aspect_ratio = request.input.get("aspect_ratio").and_then(Value::as_str).unwrap_or("1:1");
             let data_url = if let Some(Value::String(image_url)) = request.input.get("image_url") {
                 let (mime, base64_data) = image_url.strip_prefix("data:").and_then(|rest| rest.split_once(";base64,")).ok_or("Unrecognized source image data URI")?;
                 let bytes = base64::engine::general_purpose::STANDARD.decode(base64_data).map_err(|error| format!("Could not decode source image: {error}"))?;
-                openai_edit_image(prompt, aspect_ratio, mime, bytes, &key).await?
+                openai_edit_image(prompt, aspect_ratio, mime, bytes, model, &key).await?
             } else {
-                openai_generate_image(prompt, aspect_ratio, &key).await?
+                openai_generate_image(prompt, aspect_ratio, model, &key).await?
             };
             let request_id = format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
             Ok(GenerationSubmission { provider: request.provider, model_id: request.model_id, request_id, status: "COMPLETED".into(), response_url: Some(data_url), status_url: None })
@@ -1435,7 +1457,7 @@ pub async fn save_asset_from_url(app: AppHandle, dir_name: String, asset_type: S
 
 #[cfg(test)]
 mod tests {
-    use super::{fal_input, kie_input, wavespeed_input, wavespeed_video_input};
+    use super::{fal_input, kie_input, openai_model_from_id, wavespeed_input, wavespeed_video_input};
     use serde_json::json;
 
     #[test]
@@ -1676,6 +1698,36 @@ mod tests {
         assert!(input.get("strength").is_none());
         assert_eq!(input.get("image_size").and_then(|value| value.as_str()), Some("portrait_16_9"), "unlike nano-banana/edit, gpt-image-2/edit needs the image_size mapping, not raw aspect_ratio");
         assert!(input.get("aspect_ratio").is_none());
+    }
+
+    #[test]
+    fn fal_gpt_image_25_flare_and_sunburst_use_the_same_mapping_as_gpt_image_2() {
+        for id in ["openai/gpt-image-2.5/flare/text-to-image", "openai/gpt-image-2.5/sunburst/text-to-image"] {
+            let input = fal_input(id, &json!({ "prompt": "A cozy loft", "aspect_ratio": "16:9" })).unwrap();
+            assert_eq!(input.get("image_size").and_then(|value| value.as_str()), Some("landscape_16_9"), "{id} should map aspect_ratio to image_size exactly like gpt-image-2");
+            assert!(input.get("aspect_ratio").is_none());
+        }
+        for id in ["openai/gpt-image-2.5/flare/edit", "openai/gpt-image-2.5/sunburst/edit"] {
+            let input = fal_input(
+                id,
+                &json!({ "prompt": "The same house in snow", "aspect_ratio": "9:16", "image_url": "data:image/png;base64,AAAA", "strength": 0.5 }),
+            ).unwrap();
+            assert_eq!(input.get("image_urls"), Some(&json!(["data:image/png;base64,AAAA"])), "{id} should wrap image_url into image_urls");
+            assert!(input.get("image_url").is_none());
+            assert!(input.get("strength").is_none());
+            assert_eq!(input.get("image_size").and_then(|value| value.as_str()), Some("portrait_16_9"), "{id} should map aspect_ratio to image_size like gpt-image-2/edit");
+        }
+    }
+
+    #[test]
+    fn openai_model_from_id_maps_registry_ids_to_the_literal_api_model_string() {
+        assert_eq!(openai_model_from_id("openai-native/gpt-image-2"), "gpt-image-2");
+        assert_eq!(openai_model_from_id("openai-native/gpt-image-2-edit"), "gpt-image-2");
+        assert_eq!(openai_model_from_id("openai-native/gpt-image-2.5-flare"), "gpt-image-2.5-flare");
+        assert_eq!(openai_model_from_id("openai-native/gpt-image-2.5-flare-edit"), "gpt-image-2.5-flare");
+        assert_eq!(openai_model_from_id("openai-native/gpt-image-2.5-sunburst"), "gpt-image-2.5-sunburst");
+        assert_eq!(openai_model_from_id("openai-native/gpt-image-2.5-sunburst-edit"), "gpt-image-2.5-sunburst");
+        assert_eq!(openai_model_from_id("something-unrecognized"), "gpt-image-2", "unknown ids fall back to the previous hardcoded default rather than erroring");
     }
 
     #[test]

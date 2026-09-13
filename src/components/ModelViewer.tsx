@@ -8,18 +8,66 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Loader2 } from "lucide-react";
+import { LIGHT_PRESETS, type LightPresetId } from "../lib/lightPresets";
+
+function applyLightPreset(
+  lights: {
+    hemisphere: THREE.HemisphereLight;
+    ambient: THREE.AmbientLight;
+    key: THREE.DirectionalLight;
+    fill: THREE.DirectionalLight;
+    rim: THREE.DirectionalLight;
+    scene: THREE.Scene;
+    renderer: THREE.WebGLRenderer;
+  },
+  presetId: LightPresetId,
+) {
+  const preset = LIGHT_PRESETS[presetId];
+  lights.hemisphere.color.setHex(preset.hemisphere.sky);
+  lights.hemisphere.groundColor.setHex(preset.hemisphere.ground);
+  lights.hemisphere.intensity = preset.hemisphere.intensity;
+  lights.ambient.color.setHex(preset.ambient.color);
+  lights.ambient.intensity = preset.ambient.intensity;
+  lights.key.color.setHex(preset.key.color);
+  lights.key.intensity = preset.key.intensity;
+  lights.key.position.set(...preset.key.position);
+  lights.fill.color.setHex(preset.fill.color);
+  lights.fill.intensity = preset.fill.intensity;
+  lights.fill.position.set(...preset.fill.position);
+  lights.rim.color.setHex(preset.rim.color);
+  lights.rim.intensity = preset.rim.intensity;
+  lights.rim.position.set(...preset.rim.position);
+  if (preset.background === null) {
+    lights.scene.background = null;
+    lights.renderer.setClearColor(0x000000, 0);
+  } else {
+    lights.scene.background = new THREE.Color(preset.background);
+    lights.renderer.setClearColor(preset.background, 1);
+  }
+}
 
 function ModelViewerImpl({
   src,
   className,
   autoRotate = true,
+  lightPreset = "studio",
 }: {
   src: string;
   className?: string;
   autoRotate?: boolean;
+  lightPreset?: LightPresetId;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const lightsRef = useRef<{
+    hemisphere: THREE.HemisphereLight;
+    ambient: THREE.AmbientLight;
+    key: THREE.DirectionalLight;
+    fill: THREE.DirectionalLight;
+    rim: THREE.DirectionalLight;
+    scene: THREE.Scene;
+    renderer: THREE.WebGLRenderer;
+  } | null>(null);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -37,8 +85,10 @@ function ModelViewerImpl({
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x505060, 3.2));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const hemisphere = new THREE.HemisphereLight(0xffffff, 0x505060, 3.2);
+    scene.add(hemisphere);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
     const key = new THREE.DirectionalLight(0xffffff, 3.0);
     key.position.set(3, 5, 4);
     scene.add(key);
@@ -48,6 +98,8 @@ function ModelViewerImpl({
     const rim = new THREE.DirectionalLight(0xffffff, 1.0);
     rim.position.set(0, 3, -5);
     scene.add(rim);
+    lightsRef.current = { hemisphere, ambient, key, fill, rim, scene, renderer };
+    applyLightPreset(lightsRef.current, lightPreset);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -132,8 +184,16 @@ function ModelViewerImpl({
         else mat?.dispose();
       });
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
+      lightsRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lightPreset's initial value is read
+    // via lightsRef at mount time only; changing it afterwards is handled by the effect below
+    // without tearing down and reloading the whole model.
   }, [src, autoRotate]);
+
+  useEffect(() => {
+    if (lightsRef.current) applyLightPreset(lightsRef.current, lightPreset);
+  }, [lightPreset]);
 
   return (
     <div className={`relative overflow-hidden rounded-md bg-base-950 ${className ?? ""}`}>

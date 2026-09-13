@@ -20,6 +20,7 @@ import { Lightbox } from "../components/Lightbox";
 import { PromptAssist } from "../components/PromptAssist";
 import { ContinuityCheck } from "../components/ContinuityCheck";
 import { StyleFromPhoto } from "../components/StyleFromPhoto";
+import { SketchCanvas } from "../components/SketchCanvas";
 import { PostcardExport } from "../components/PostcardExport";
 import { emptyWorldBible, entityKind, ENTITY_KIND_LABELS, projectCharacters, type Asset } from "../types";
 import { MUSIC_GENRE_PRESETS } from "../lib/musicalCozies";
@@ -43,9 +44,14 @@ export function ImageStudioPage() {
   const upscaleImage = useAppStore((state) => state.upscaleImage);
   const upscalingAssetId = useAppStore((state) => state.upscalingAssetId);
   const generateShot = useAppStore((state) => state.generateShot);
+  const generateSketchAssembly = useAppStore((state) => state.generateSketchAssembly);
   const enqueueRender = useAppStore((state) => state.enqueueRender);
 
-  const [mode, setMode] = useState<"master" | "variant" | "shot">("master");
+  const [mode, setMode] = useState<"master" | "variant" | "shot" | "sketch">("master");
+  const [sketchDataUrl, setSketchDataUrl] = useState("");
+  const [sketchPrompt, setSketchPrompt] = useState("");
+  const [sketchAspectRatio, setSketchAspectRatio] = useState("1:1");
+  const [sketchStyleAssetId, setSketchStyleAssetId] = useState("");
   const [sourceAssetId, setSourceAssetId] = useState<string>("");
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [useReal, setUseReal] = useRenderModePref();
@@ -110,7 +116,7 @@ export function ImageStudioPage() {
     void connectedProviders().then((set) => setHasConnectedProvider(set.size > 0));
   }, []);
 
-  const requiresStartFrame = mode === "variant" || mode === "shot";
+  const requiresStartFrame = mode === "variant" || mode === "shot" || mode === "sketch";
   useEffect(() => {
     setModelOverrideId("");
     void connectedModelsFor("image", requiresStartFrame).then(setConnectedModels);
@@ -133,6 +139,13 @@ export function ImageStudioPage() {
 
   const handleGenerate = () => {
     markSeenGenerateNote();
+    if (mode === "sketch") {
+      if (!sketchDataUrl || !sketchPrompt.trim()) return;
+      enqueueRender("Assemble Cozy", () =>
+        generateSketchAssembly(sketchDataUrl, sketchPrompt.trim(), sketchAspectRatio, sketchStyleAssetId || undefined, modelOverrideId || undefined),
+      );
+      return;
+    }
     if (mode === "shot") {
       if (!sourceAssetId || !shotSubject.trim()) return;
       const characterFragments = projectCharacters(project)
@@ -151,7 +164,7 @@ export function ImageStudioPage() {
   // buildImageIntent (master / mock) and buildEditInstruction (real variant edit), so this is never a
   // second source of truth, just a view into the same functions the actual generation call uses.
   const promptPreview =
-    mode === "shot"
+    mode === "shot" || mode === "sketch"
       ? null
       : mode === "variant" && useReal
         ? buildEditInstruction(controls)
@@ -247,7 +260,75 @@ export function ImageStudioPage() {
             >
               Shot
             </button>
+            <button
+              className={`flex-1 py-2 ${mode === "sketch" ? "bg-accent-500 text-accentText" : "text-slate-400"}`}
+              onClick={() => {
+                setMode("sketch");
+                if (rawPromptEnabled) {
+                  setRawPromptEnabled(false);
+                  patchControls({ rawPromptOverride: "" });
+                }
+              }}
+            >
+              Sketch
+            </button>
           </div>
+
+          {mode === "sketch" && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">
+                  Assemble Cozies — sketch the layout
+                </label>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Rough out where things go — a box for the sofa, a circle for the rug. GPT Image 2.5 turns the
+                  layout into a finished scene, same idea as ChatGPT's own Sketch tool.
+                </p>
+                <SketchCanvas onChange={setSketchDataUrl} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Describe the result</label>
+                <textarea
+                  value={sketchPrompt}
+                  onChange={(event) => setSketchPrompt(event.target.value)}
+                  rows={3}
+                  placeholder="A cozy reading nook with warm lamplight, potted plants, and a woven rug…"
+                  className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Style reference (optional)</label>
+                <select
+                  value={sketchStyleAssetId}
+                  onChange={(event) => setSketchStyleAssetId(event.target.value)}
+                  className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500"
+                >
+                  <option value="">None — layout only</option>
+                  {imageAssets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Aspect Ratio</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {ASPECT_RATIO_OPTIONS.map((ratio) => (
+                    <button
+                      key={ratio}
+                      onClick={() => setSketchAspectRatio(ratio)}
+                      className={`px-2.5 py-1 rounded-md text-xs border transition ${
+                        sketchAspectRatio === ratio ? "border-accent-500 bg-accent-500/10 text-white" : "border-base-600 text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {ratio}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {(mode === "variant" || mode === "shot") && (
             <div>
@@ -583,7 +664,7 @@ export function ImageStudioPage() {
           </div>
           )}
 
-          {mode !== "shot" && (
+          {mode !== "shot" && mode !== "sketch" && (
           <div>
             <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Rendering</label>
             <div className="flex rounded-lg border border-base-600 overflow-hidden text-xs">
@@ -602,7 +683,7 @@ export function ImageStudioPage() {
           </div>
           )}
 
-          {mode !== "shot" && useReal && connectedModels.length > 0 && (
+          {mode !== "shot" && mode !== "sketch" && useReal && connectedModels.length > 0 && (
             <div>
               <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Model</label>
               <select
@@ -620,7 +701,7 @@ export function ImageStudioPage() {
             </div>
           )}
 
-          {mode === "shot" && connectedModels.length > 0 && (
+          {(mode === "shot" || mode === "sketch") && connectedModels.length > 0 && (
             <div>
               <label className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5">Model</label>
               <select
@@ -666,16 +747,20 @@ export function ImageStudioPage() {
             disabled={
               (mode === "variant" && !sourceAssetId) ||
               (mode === "shot" && (!sourceAssetId || !shotSubject.trim() || !hasConnectedProvider)) ||
-              (mode !== "shot" && useReal && !hasConnectedProvider)
+              (mode === "sketch" && (!sketchDataUrl || !sketchPrompt.trim() || !hasConnectedProvider)) ||
+              (mode !== "shot" && mode !== "sketch" && useReal && !hasConnectedProvider)
             }
             onClick={handleGenerate}
             className="w-full flex items-center justify-center gap-2 rounded-lg bg-accent-500 hover:bg-accent-400 disabled:opacity-50 disabled:cursor-not-allowed text-accentText px-4 py-2.5 text-sm font-medium transition"
           >
-            <Wand2 size={16} /> {mode === "shot" ? "Queue Shot" : mode === "variant" ? "Queue Variant" : "Queue Master Image"}
+            <Wand2 size={16} /> {mode === "shot" ? "Queue Shot" : mode === "variant" ? "Queue Variant" : mode === "sketch" ? "Assemble Cozy" : "Queue Master Image"}
           </button>
           {mode === "shot" && !sourceAssetId && <p className="text-[11px] text-yellow-500 -mt-2">Select a source image above.</p>}
           {mode === "shot" && sourceAssetId && !shotSubject.trim() && <p className="text-[11px] text-yellow-500 -mt-2">Fill in "What to focus on" above.</p>}
           {mode === "shot" && sourceAssetId && shotSubject.trim() && !hasConnectedProvider && <p className="text-[11px] text-yellow-500 -mt-2">No provider connected — add a key in Settings.</p>}
+          {mode === "sketch" && !sketchDataUrl && <p className="text-[11px] text-yellow-500 -mt-2">Draw a rough layout above.</p>}
+          {mode === "sketch" && sketchDataUrl && !sketchPrompt.trim() && <p className="text-[11px] text-yellow-500 -mt-2">Describe what the sketch should become.</p>}
+          {mode === "sketch" && sketchDataUrl && sketchPrompt.trim() && !hasConnectedProvider && <p className="text-[11px] text-yellow-500 -mt-2">No provider connected — add a key in Settings.</p>}
           <button
             onClick={() => void importImage("image")}
             className="w-full flex items-center justify-center gap-2 rounded-lg border border-base-600 hover:border-accent-500 text-slate-300 hover:text-white px-4 py-2.5 text-sm transition"

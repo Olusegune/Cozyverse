@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as api from "../lib/api";
 import { buildAudioIntent, buildEditInstruction, buildImageIntent, buildMotionIntent, buildShotInstruction, type AudioKind, type ImageVariantControls, type ShotControls } from "../lib/continuity";
 import { getAudioProvider, getImageProvider, getVideoProvider } from "../lib/providers";
-import { audioModelForKind, dialogueModel, elevenLabsVoiceIds, pickConnectedModel, runRealGeneration, upscaleModel } from "../lib/providers/realGeneration";
+import { audioModelForKind, connectedProviders, dialogueModel, elevenLabsVoiceIds, pickConnectedModel, runRealGeneration, upscaleModel } from "../lib/providers/realGeneration";
 import { modelById } from "../lib/providers/modelRegistry";
 import { buildExportManifest, validateForExport } from "../lib/exportFormat";
 import { assignVoices, parseDialogueScript } from "../lib/dialogueScript";
@@ -80,6 +80,10 @@ type AppState = {
 
   generateImage: (controls: ImageVariantControls, sourceAssetId?: string, useReal?: boolean, modelOverrideId?: string) => Promise<boolean>;
   generateShot: (sourceAssetId: string, controls: ShotControls, modelOverrideId?: string, additionalReferenceAssetIds?: string[]) => Promise<boolean>;
+  /** "Assemble Cozies" — turns a rough in-app sketch (optionally plus one style reference asset)
+   * into a finished scene via an edit-capable image model (GPT Image 2.5 by default). Saves the
+   * sketch itself as a "reference" asset first, same as a picked/imported source image. */
+  generateSketchAssembly: (sketchDataUrl: string, prompt: string, aspectRatio: string, styleAssetId?: string, modelOverrideId?: string) => Promise<boolean>;
   generateMotion: (sourceAssetId: string, motionDescription: string, durationSeconds: number, loop: boolean, useReal?: boolean, modelOverrideId?: string) => Promise<boolean>;
   generateVideoShot: (options: ShotVideoOptions) => Promise<boolean>;
   generateAudio: (kind: AudioKind, customInstruction: string, durationSeconds: number, loop: boolean, useReal?: boolean, genreDescription?: string, modelOverrideId?: string) => Promise<boolean>;
@@ -483,6 +487,112 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ project: nextProject, generating: false, notice: "Shot generated." });
       await api.saveCozyverseJson(dirName, nextProject);
       await loadAssetUrls(dirName, [asset], set);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set((state) => (state.project ? { project: { ...state.project, generations: state.project.generations.map((existing) => (existing.id === job.id ? { ...existing, status: "failed" as const, error: message, completedAt: new Date().toISOString() } : existing)) }, generating: false, error: message } : { generating: false, error: message }));
+      return false;
+    }
+  },
+
+  generateSketchAssembly: async (sketchDataUrl: string, prompt: string, aspectRatio: string, styleAssetId?: string, modelOverrideId?: string) => {
+    const { project, dirName } = get();
+    if (!project || !dirName) return false;
+    if (!prompt.trim()) {
+      set({ error: "Describe what the sketch should become before assembling." });
+      return false;
+    }
+
+    let model;
+    try {
+      model = modelOverrideId ? modelById(modelOverrideId) : undefined;
+      if (modelOverrideId && !model) throw new Error(`Selected model "${modelOverrideId}" is not registered.`);
+      // GPT Image 2.5 Flare (via fal) is the natural default — the same model family ChatGPT's
+      // own Sketch tool uses for turning a rough layout into a finished scene — but any connected
+      // editing-capable model works, same fallback chain as Variant/Shot mode.
+      model ??= modelById("openai/gpt-image-2.5/flare/edit");
+      const available = await connectedProviders();
+      if (!model || !available.has(model.provider)) model = await pickConnectedModel("image", "editing", true);
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      return false;
+    }
+
+    // Persist the sketch itself as a normal project asset first — same shape as an imported or
+    // picked reference image, so it shows up in the gallery and can be reused later.
+    let sketchAsset: Asset;
+    try {
+      const savedSketch = await api.saveGeneratedAsset(dirName, "image", sketchDataUrl, "png");
+      sketchAsset = {
+        id: crypto.randomUUID(),
+        type: "image",
+        role: "reference",
+        name: "Sketch",
+        filePath: savedSketch.filePath,
+        source: "generated",
+        metadata: { preferred: false },
+        createdAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Could not save the sketch." });
+      return false;
+    }
+
+    const styleAsset = styleAssetId ? project.assets.find((asset) => asset.id === styleAssetId) : undefined;
+    const now = new Date().toISOString();
+    const job: GenerationJob = {
+      id: crypto.randomUUID(),
+      type: "image",
+      provider: model.provider,
+      model: model.id,
+      status: "running",
+      prompt,
+      settings: { kind: "sketch-assembly", aspectRatio },
+      sourceAssetIds: [sketchAsset.id, ...(styleAsset ? [styleAsset.id] : [])],
+      createdAt: now,
+      startedAt: now,
+      resultAssetIds: [],
+    };
+    const projectWithSketch: CozyverseProject = { ...project, assets: [...project.assets, sketchAsset], generations: [job, ...project.generations] };
+    set({ project: projectWithSketch, generating: true, error: null });
+    await api.saveCozyverseJson(dirName, projectWithSketch);
+    await loadAssetUrls(dirName, [sketchAsset], set);
+
+    try {
+      const referenceUrls = [sketchDataUrl, ...(styleAsset ? [await api.assetAsDataUrl(dirName, styleAsset.filePath)] : [])];
+      const url = await runRealGeneration(model, {
+        prompt,
+        image_url: sketchDataUrl,
+        reference_image_urls: referenceUrls,
+        aspect_ratio: aspectRatio,
+      });
+      const saved = await api.saveAssetFromUrl(dirName, "image", url);
+      const currentProject = get().project;
+      if (!currentProject) return false;
+      const resultAsset: Asset = {
+        id: crypto.randomUUID(),
+        type: "image",
+        role: "variant",
+        name: "Assembled Cozy",
+        filePath: saved.filePath,
+        source: "generated",
+        provider: model.provider,
+        model: model.id,
+        generationId: job.id,
+        parentAssetId: sketchAsset.id,
+        metadata: { preferred: false },
+        createdAt: new Date().toISOString(),
+      };
+      const completedJob: GenerationJob = { ...job, status: "completed", completedAt: new Date().toISOString(), resultAssetIds: [resultAsset.id] };
+      const nextProject: CozyverseProject = {
+        ...currentProject,
+        assets: [...currentProject.assets, resultAsset],
+        generations: currentProject.generations.map((existing) => (existing.id === job.id ? completedJob : existing)),
+        metadata: { ...currentProject.metadata, updatedAt: new Date().toISOString() },
+      };
+      set({ project: nextProject, generating: false, notice: "Cozy assembled from sketch." });
+      await api.saveCozyverseJson(dirName, nextProject);
+      await loadAssetUrls(dirName, [resultAsset], set);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

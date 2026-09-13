@@ -14,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
+import { LIGHT_PRESET_LIST, type LightPresetId } from "../lib/lightPresets";
 
 const ModelViewer = lazy(() => import("./ModelViewer"));
 import {
@@ -688,6 +689,7 @@ function JobCard({
   const [showUsage, setShowUsage] = useState(false);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [lightPreset, setLightPreset] = useState<LightPresetId>("studio");
   const [retrying, setRetrying] = useState(false);
   const [turn, setTurn] = useState<{ done: number; total: number } | null>(null);
   const [turnErr, setTurnErr] = useState<string | null>(null);
@@ -993,13 +995,29 @@ function JobCard({
                           </div>
                         }
                       >
-                        <ModelViewer src={previewUrl} className="h-full w-full !bg-transparent" />
+                        <ModelViewer src={previewUrl} className="h-full w-full !bg-transparent" lightPreset={lightPreset} />
                       </Suspense>
                     ) : (
                       <div className="flex h-full items-center justify-center text-[11px] text-slate-500">
                         <Loader2 size={12} className="mr-1.5 animate-spin" /> opening…
                       </div>
                     )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 bg-base-900 px-2.5 py-2">
+                    <span className="text-[10px] text-slate-500">Lighting</span>
+                    {LIGHT_PRESET_LIST.map((preset) => (
+                      <button
+                        key={preset.id}
+                        onClick={() => setLightPreset(preset.id)}
+                        title={preset.label}
+                        className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition ${
+                          lightPreset === preset.id ? "border-accent-500 text-white" : "border-base-600 text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: preset.swatch }} />
+                        {preset.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
