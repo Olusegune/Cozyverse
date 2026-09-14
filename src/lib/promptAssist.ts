@@ -1,4 +1,5 @@
 import type { RegisteredModel } from "./providers/modelRegistry";
+import { composeStyleStackFragments, type StyleStackControls } from "./styleStack";
 import { entityKind, ENTITY_KIND_LABELS, type Character, type Scene, type WorldBible } from "../types";
 
 export type PromptAssistKind = "image" | "video" | "audio" | "ambience" | "sfx";
@@ -49,10 +50,28 @@ export function buildAssistSystemPrompt(
   scene: Scene | undefined,
   model: RegisteredModel | undefined,
   shotCharacters: Character[] = [],
+  styleStack: StyleStackControls | undefined = undefined,
 ): string {
   const lines: string[] = [
     `You are a prompt-writing assistant inside a creative tool called Cozyverse Studio. The user will describe a rough idea or concept, and you write ${KIND_LABEL[kind]} generation prompts from it.`,
   ];
+
+  // Cozyverse's images are, by default, small physical-diorama scenes (miniature/tabletop framing,
+  // toy-like scale) rather than full-scale illustrations or photos — without saying this explicitly,
+  // Ollama drafts came back as generic scene descriptions with no diorama framing at all, which is
+  // exactly what a chosen Style Stack Art Style already encodes for the deterministic (non-assisted)
+  // prompt path. Passing the same fragments here keeps Prompt Assist's drafts consistent with
+  // whatever diorama type/art style/camera/lighting the user has actually selected.
+  if (kind === "image" || kind === "video") {
+    const styleFragments = styleStack ? composeStyleStackFragments(styleStack) : [];
+    if (styleFragments.length > 0) {
+      lines.push(`This scene's chosen diorama type / art direction (weave this in, don't just tack it on): ${styleFragments.join(", ")}.`);
+    } else {
+      lines.push(
+        "Cozyverse Studio's default aesthetic is a small physical diorama — miniature/tabletop scale, an elevated three-quarter camera angle, a visible base or pedestal edge — unless the user's idea clearly calls for something else. Write drafts with that framing in mind.",
+      );
+    }
+  }
 
   if (worldBible?.artStyle) lines.push(`Art/visual style to stay consistent with: ${worldBible.artStyle}.`);
   if (worldBible?.mood) lines.push(`Overall mood/tone: ${worldBible.mood}.`);

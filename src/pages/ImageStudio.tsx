@@ -99,7 +99,10 @@ export function ImageStudioPage() {
       setDecomposingAssetId(null);
     }
   };
-  const [styleStackOpen, setStyleStackOpen] = useState(false);
+  // Open by default — this is the diorama-type/art-style picker, arguably the single most
+  // important control in the app; collapsing it by default made it easy to lose track of
+  // entirely (reported: "the ability to select diorama types seems to have disappeared").
+  const [styleStackOpen, setStyleStackOpen] = useState(true);
   const [sceneConditionsOpen, setSceneConditionsOpen] = useState(false);
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
   const [rawPromptEnabled, setRawPromptEnabled] = useState(false);
@@ -533,6 +536,7 @@ export function ImageStudioPage() {
                   kind="image"
                   worldBible={project?.worldBible}
                   scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
+                  styleStack={controls.styleStack}
                   onUse={(text) => patchControls({ rawPromptOverride: text })}
                 />
               </div>
@@ -579,7 +583,7 @@ export function ImageStudioPage() {
               className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-400 hover:text-white transition"
             >
               <span className="flex items-center gap-2">
-                Style Stack
+                Diorama &amp; Art Style
                 {activeStackCount(controls.styleStack) > 0 && (
                   <span className="bg-accent-500 text-accentText text-[10px] px-1.5 py-0.5 rounded-full normal-case tracking-normal">
                     {activeStackCount(controls.styleStack)}
@@ -591,7 +595,8 @@ export function ImageStudioPage() {
             {styleStackOpen && (
               <div className="px-3 pb-3 space-y-3 border-t border-base-700 pt-3">
                 <p className="text-[11px] text-slate-500 -mt-1">
-                  Independent art-direction layers — leave any at "None" to fall back to the World Bible's own art style.
+                  Pick a diorama type (Art Style), then its construction/material/lighting/camera — independent layers, leave any at
+                  "None" to fall back to the World Bible's own art style.
                 </p>
                 {STYLE_STACK_AXES.map(({ key, label, presets }) => (
                   <div key={key}>

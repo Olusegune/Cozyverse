@@ -3,18 +3,21 @@ import { Loader2, Sparkles, X } from "lucide-react";
 import * as api from "../lib/api";
 import { buildAssistSystemPrompt, parseAssistVariants, type PromptAssistKind } from "../lib/promptAssist";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
+import type { StyleStackControls } from "../lib/styleStack";
 import type { Character, Scene, WorldBible } from "../types";
 
 /** A small "✨ Assist" trigger + popover panel: the user describes a loose concept, a local Ollama
- * model (configured in Settings) writes a few prompt drafts grounded in the project's World Bible
- * and the active scene's environment, and the user either uses one as-is or edits it further — this
- * only ever fills the caller's prompt field, never submits a generation itself. */
+ * model (configured in Settings) writes a few prompt drafts grounded in the project's World Bible,
+ * the active scene's environment, and the currently-selected diorama/Style Stack, and the user
+ * either uses one as-is or edits it further — this only ever fills the caller's prompt field, never
+ * submits a generation itself. */
 export function PromptAssist({
   kind,
   worldBible,
   scene,
   model,
   shotCharacters,
+  styleStack,
   onUse,
 }: {
   kind: PromptAssistKind;
@@ -22,6 +25,7 @@ export function PromptAssist({
   scene?: Scene;
   model?: RegisteredModel;
   shotCharacters?: Character[];
+  styleStack?: StyleStackControls;
   onUse: (prompt: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -41,7 +45,7 @@ export function PromptAssist({
         setError("No Ollama model is set up yet — add one in Settings → Prompt Assistant.");
         return;
       }
-      const system = buildAssistSystemPrompt(kind, worldBible, scene, model, shotCharacters);
+      const system = buildAssistSystemPrompt(kind, worldBible, scene, model, shotCharacters, styleStack);
       const raw = await api.ollamaGenerate(settings.serverUrl, settings.model, system, idea.trim());
       const parsed = parseAssistVariants(raw);
       if (parsed.length === 0) {
