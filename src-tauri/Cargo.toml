@@ -40,8 +40,13 @@ keyring = { version = "3", features = ["windows-native"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 
-# Prefers the kernel keyring (no daemon dependency), falling back to the D-Bus Secret Service
-# (GNOME Keyring / KWallet) when a session needs persistence across reboots. crypto-rust avoids
-# requiring a system OpenSSL dev package in CI/build environments.
+# Plain kernel keyring (linux-keyutils) — no D-Bus, no daemon dependency, no extra system library
+# at compile time. Tried "linux-native-sync-persistent" (kernel keyring + a D-Bus Secret Service
+# fallback via dbus-secret-service/zbus) first, but that pulled in a much larger, more fragile
+# dependency chain (zbus, a full crypto stack for the Secret Service's own encryption) that failed
+# to compile in CI on ubuntu-latest — see the exact failure in that run before trying to re-add the
+# D-Bus fallback. The kernel keyring alone is a real, working credential store; the caveat is that
+# some minimal/container Linux setups don't persist it across a full logout the way GNOME
+# Keyring/KWallet would.
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
+keyring = { version = "3", features = ["linux-native"] }

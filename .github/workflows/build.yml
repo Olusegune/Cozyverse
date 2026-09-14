@@ -33,14 +33,13 @@ jobs:
         with:
           workspaces: "src-tauri -> target"
 
-      # Tauri's own Linux runtime + build-time deps (webkit2gtk for the
-      # webview, libdbus for keyring's Secret Service fallback). macOS and
-      # Windows runners ship everything Tauri needs already.
+      # Tauri's own Linux runtime + build-time deps. keyring's "linux-native" feature (kernel
+      # keyring only, see src-tauri/Cargo.toml) needs nothing extra here.
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install frontend dependencies
         run: npm ci
