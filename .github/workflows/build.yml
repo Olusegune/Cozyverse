@@ -1,10 +1,12 @@
 name: Build check
 
-# Windows-only: the Rust side depends on keyring's "windows-native" backend
-# (src-tauri/Cargo.toml), so this can't build on macOS/Linux runners without
-# first reworking that dependency per-OS. This still catches the thing that
-# actually matters day to day — a broken commit — before it reaches an
-# installer, which is what was missing.
+# Matrix across all three desktop OSes — keyring's storage backend is now
+# selected per-target in src-tauri/Cargo.toml (windows-native / apple-native /
+# linux-native-sync-persistent), which was the one real blocker to building
+# here at all. This still only compiles for macOS/Linux; the actual installer
+# targets (dmg/deb/appimage) aren't wired into `tauri.conf.json` yet — that's
+# a separate, deliberate step once there's a reason to actually ship those
+# builds, not something to add silently alongside a compile check.
 on:
   push:
     branches: [main, decompose-golden-path]
@@ -12,7 +14,11 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -26,6 +32,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
+
+      # Tauri's own Linux runtime + build-time deps (webkit2gtk for the
+      # webview, libdbus for keyring's Secret Service fallback). macOS and
+      # Windows runners ship everything Tauri needs already.
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
 
       - name: Install frontend dependencies
         run: npm ci
@@ -41,8 +56,9 @@ jobs:
         working-directory: src-tauri
 
       # Debug build here (not --release) — this just needs to catch a compile
-      # break fast; a release build + installer is a separate concern for a
-      # future release workflow, not every push/PR.
+      # break fast; a release build + installer is release.yml's job, and
+      # Windows-only there until Mac/Linux installer targets are deliberately
+      # added to tauri.conf.json.
       - name: Rust build
         run: cargo build
         working-directory: src-tauri
