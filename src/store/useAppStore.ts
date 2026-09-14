@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as api from "../lib/api";
 import { buildAudioIntent, buildEditInstruction, buildImageIntent, buildMotionIntent, buildShotInstruction, type AudioKind, type ImageVariantControls, type ShotControls } from "../lib/continuity";
+import type { StyleStackControls } from "../lib/styleStack";
 import { getAudioProvider, getImageProvider, getVideoProvider } from "../lib/providers";
 import { audioModelForKind, connectedProviders, dialogueModel, elevenLabsVoiceIds, pickConnectedModel, runRealGeneration, upscaleModel } from "../lib/providers/realGeneration";
 import { modelById } from "../lib/providers/modelRegistry";
@@ -636,7 +637,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       return false;
     }
     const sourceGeneration = sourceAsset.generationId ? project.generations.find((job) => job.id === sourceAsset.generationId) : undefined;
-    const sourceSettings = (sourceGeneration?.settings || {}) as { weather?: string; timeOfDay?: string; lighting?: string; mood?: string; colorPalette?: string[] };
+    const sourceSettings = (sourceGeneration?.settings || {}) as {
+      weather?: string;
+      timeOfDay?: string;
+      lighting?: string;
+      mood?: string;
+      colorPalette?: string[];
+      styleStack?: StyleStackControls;
+    };
     const intent = buildMotionIntent(project.worldBible, sourceSettings, motionDescription);
     const now = new Date().toISOString();
 

@@ -8,6 +8,7 @@ import { PromptAssist } from "../components/PromptAssist";
 import { ContinuityCheck } from "../components/ContinuityCheck";
 import * as api from "../lib/api";
 import type { RegisteredModel } from "../lib/providers/modelRegistry";
+import type { StyleStackControls } from "../lib/styleStack";
 import { entityKind, ENTITY_KIND_LABELS, projectCharacters } from "../types";
 
 export function MotionStudioPage() {
@@ -88,6 +89,16 @@ export function MotionStudioPage() {
   }, [shotModelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!project) return null;
+
+  // The diorama type a video should carry lives on the source image's own generation record, not
+  // as a separate picker here — Motion Studio animates an already-styled frame, so re-describing
+  // style independently would risk contradicting it. Pull it so Prompt Assist and the real
+  // generation prompt both stay consistent with whatever the source frame was actually made with.
+  const styleStackFor = (assetId: string) => {
+    const asset = project.assets.find((a) => a.id === assetId);
+    const generation = asset?.generationId ? project.generations.find((job) => job.id === asset.generationId) : undefined;
+    return (generation?.settings as { styleStack?: StyleStackControls } | undefined)?.styleStack;
+  };
 
   const handleGenerate = () => {
     if (!sourceAssetId) return;
@@ -274,6 +285,7 @@ export function MotionStudioPage() {
                     scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
                     model={shotModel}
                     shotCharacters={characters.filter((character) => shotCharacterIds.includes(character.id))}
+                    styleStack={shotStartId ? styleStackFor(shotStartId) : undefined}
                     onUse={setShotPrompt}
                   />
                 </div>
@@ -614,7 +626,13 @@ export function MotionStudioPage() {
                 placeholder="e.g. rain falling steadily, slow camera drift across the skyline"
                 className="w-full bg-base-800 border border-base-600 rounded-md px-3 py-2 text-sm text-white outline-none focus:border-accent-500 resize-none"
               />
-              <PromptAssist kind="video" worldBible={project?.worldBible} scene={project?.scenes.find((scene) => scene.id === activeSceneId)} onUse={setMotionDescription} />
+              <PromptAssist
+                kind="video"
+                worldBible={project?.worldBible}
+                scene={project?.scenes.find((scene) => scene.id === activeSceneId)}
+                styleStack={sourceAssetId ? styleStackFor(sourceAssetId) : undefined}
+                onUse={setMotionDescription}
+              />
             </div>
 
             <div>

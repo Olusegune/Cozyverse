@@ -195,6 +195,7 @@ export type MotionSourceSettings = {
   lighting?: string;
   mood?: string;
   colorPalette?: string[];
+  styleStack?: StyleStackControls;
 };
 
 /**
@@ -208,6 +209,14 @@ export function buildMotionIntent(bible: WorldBible, sourceSettings: MotionSourc
   const mood = sourceSettings.mood || bible.mood || "Cozy";
   const colorPalette = sourceSettings.colorPalette?.length ? sourceSettings.colorPalette : bible.colorPalette;
 
+  // The source image already carries its diorama style in its pixels, but image-to-video models
+  // that also read the text prompt for style (not just motion) were still coming back generic —
+  // same gap as buildEditInstruction had before it started appending style fragments explicitly.
+  // Pull the exact Style Stack the source image was generated with (recorded on its own generation
+  // job) rather than re-describing it, so a video never contradicts the diorama type its own frame
+  // was made with.
+  const styleFragments = sourceSettings.styleStack ? composeStyleStackFragments(sourceSettings.styleStack) : [];
+
   const prompt = [
     bible.shortConcept,
     `Motion: ${motionDescription || "gentle ambient drift"}.`,
@@ -215,12 +224,13 @@ export function buildMotionIntent(bible: WorldBible, sourceSettings: MotionSourc
     `Time of day: ${timeOfDay}.`,
     `Lighting: ${lighting}.`,
     `Mood: ${mood}.`,
+    styleFragments.length > 0 && `Art direction (keep consistent with the source frame): ${styleFragments.join(", ")}.`,
   ].filter(Boolean).join(" ");
 
   return {
     prompt,
     negativePrompt: bible.thingsToAvoid || "",
-    settings: { weather, timeOfDay, lighting, mood, colorPalette, motionDescription },
+    settings: { weather, timeOfDay, lighting, mood, colorPalette, motionDescription, styleStack: sourceSettings.styleStack },
   };
 }
 
