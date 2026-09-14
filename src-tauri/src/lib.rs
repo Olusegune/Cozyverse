@@ -590,6 +590,8 @@ fn install_panic_hook() {
 pub fn run() {
     install_panic_hook();
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let menu = build_menu(app)?;
             app.set_menu(menu)?;

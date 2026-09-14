@@ -1,0 +1,52 @@
+name: Release
+
+# Separate from build.yml on purpose — cutting a release is a deliberate act
+# (push a version tag), not a side effect of every push. Builds the real
+# installer, signs it with the updater's private key (a GitHub Actions
+# secret, never committed — see docs/auto-updater.md), and publishes the
+# installer + latest.json + .sig files to a GitHub Release. The app's
+# auto-updater (Settings > Preferences > "Check for Updates") reads that
+# latest.json to find and verify new versions.
+#
+# Windows-only, same reason as build.yml: keyring's "windows-native" Cargo
+# feature needs per-OS backend work before this could target macOS/Linux.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build, sign, and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Cozyverse Studio ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+          args: --bundles nsis,msi

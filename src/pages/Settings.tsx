@@ -1,5 +1,7 @@
 ﻿import { useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, Loader2, SlidersHorizontal, Trash2, Wand2, XCircle } from "lucide-react";
+import { CheckCircle2, DownloadCloud, KeyRound, Loader2, SlidersHorizontal, Trash2, Wand2, XCircle } from "lucide-react";
+import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import * as api from "../lib/api";
 import { useAppStore } from "../store/useAppStore";
 import { LocalModelsSection } from "../components/LocalModelsSection";
@@ -214,6 +216,124 @@ export function SettingsPage() {
   );
 }
 
+type UpdateState =
+  | { phase: "idle" }
+  | { phase: "checking" }
+  | { phase: "up-to-date" }
+  | { phase: "available"; version: string; notes: string }
+  | { phase: "downloading"; percent: number }
+  | { phase: "installed" }
+  | { phase: "error"; message: string };
+
+/** Manual "Check for Updates" — never checks or installs automatically. downloadAndInstall() only
+ * runs after the user has seen the version/notes and explicitly confirmed; the plugin itself
+ * verifies the downloaded update's signature against the public key baked into tauri.conf.json
+ * before installing anything, so this UI is a confirmation gate on top of a check that's already
+ * cryptographically enforced. */
+function UpdateCheckCard() {
+  const [state, setState] = useState<UpdateState>({ phase: "idle" });
+
+  const runCheck = async () => {
+    setState({ phase: "checking" });
+    try {
+      const update = await checkForUpdate();
+      if (!update) {
+        setState({ phase: "up-to-date" });
+        return;
+      }
+      setState({ phase: "available", version: update.version, notes: update.body || "" });
+    } catch (err) {
+      setState({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const install = async () => {
+    setState({ phase: "downloading", percent: 0 });
+    try {
+      const update = await checkForUpdate();
+      if (!update) {
+        setState({ phase: "up-to-date" });
+        return;
+      }
+      let downloaded = 0;
+      let total = 0;
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") total = event.data.contentLength || 0;
+        else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          setState({ phase: "downloading", percent: total ? Math.min(100, Math.round((downloaded / total) * 100)) : 0 });
+        }
+      });
+      setState({ phase: "installed" });
+    } catch (err) {
+      setState({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-base-700 bg-base-900 p-4">
+      <div className="flex items-center gap-2 mb-1">
+        <DownloadCloud size={14} className="text-accent-400" />
+        <h3 className="text-sm font-medium text-white">Software updates</h3>
+      </div>
+      <p className="text-xs text-slate-500 mb-3">
+        Never checked or installed automatically — only when you click below. A downloaded update is
+        cryptographically verified before it's ever installed.
+      </p>
+
+      {state.phase === "idle" && (
+        <button onClick={() => void runCheck()} className="px-4 py-1.5 rounded-md bg-accent-500 text-accentText text-sm hover:bg-accent-400 transition">
+          Check for Updates
+        </button>
+      )}
+      {state.phase === "checking" && (
+        <p className="text-sm text-slate-400 flex items-center gap-1.5">
+          <Loader2 size={13} className="animate-spin" /> Checking…
+        </p>
+      )}
+      {state.phase === "up-to-date" && (
+        <p className="text-sm text-slate-400 flex items-center gap-1.5">
+          <CheckCircle2 size={13} className="text-green-500" /> You're on the latest version.
+        </p>
+      )}
+      {state.phase === "available" && (
+        <div className="space-y-2">
+          <p className="text-sm text-white">Version {state.version} is available.</p>
+          {state.notes && <p className="text-xs text-slate-500 whitespace-pre-wrap">{state.notes}</p>}
+          <button onClick={() => void install()} className="px-4 py-1.5 rounded-md bg-accent-500 text-accentText text-sm hover:bg-accent-400 transition">
+            Download &amp; Install
+          </button>
+        </div>
+      )}
+      {state.phase === "downloading" && (
+        <p className="text-sm text-slate-400 flex items-center gap-1.5">
+          <Loader2 size={13} className="animate-spin" /> Downloading… {state.percent}%
+        </p>
+      )}
+      {state.phase === "installed" && (
+        <div className="space-y-2">
+          <p className="text-sm text-green-400 flex items-center gap-1.5">
+            <CheckCircle2 size={13} /> Installed — restart to finish.
+          </p>
+          <button onClick={() => void relaunch()} className="px-4 py-1.5 rounded-md bg-accent-500 text-accentText text-sm hover:bg-accent-400 transition">
+            Restart Now
+          </button>
+        </div>
+      )}
+      {state.phase === "error" && (
+        <div className="space-y-2">
+          <p className="text-sm text-red-400 flex items-center gap-1.5">
+            <XCircle size={13} /> {state.message}
+          </p>
+          <button onClick={() => void runCheck()} className="px-4 py-1.5 rounded-md border border-base-600 text-slate-300 text-sm hover:text-white transition">
+            Try Again
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PreferencesTab() {
   const [useReal, setUseReal] = useState(getDefaultRenderMode);
 
@@ -257,6 +377,8 @@ function PreferencesTab() {
         Decompose's own toggles (Stub mode, 4 side views) stay per-session in its panel — they're
         wiring/quality choices for one decomposition, not app-wide defaults.
       </div>
+
+      <UpdateCheckCard />
     </div>
   );
 }

@@ -53,3 +53,50 @@ URL and a hosting decision made without your review — reversible in principle 
 but the wrong call here is the kind of mistake that's expensive to notice later (a user's machine
 fetching updates from the wrong place). The keypair itself carries no such risk — it's inert until
 something actually uses it to sign or verify a real release.
+
+## Design decisions (rafter-secure-design pass)
+
+Walked against the `deployment.md` design questions before writing any code:
+
+- **Endpoint**: GitHub Releases' `latest.json` convention, as proposed above — no new hosting, no
+  new attack surface beyond GitHub's own infrastructure, and it's a fixed, hardcoded URL baked into
+  `tauri.conf.json` at build time. The app never accepts a user- or server-supplied endpoint, so
+  there's no way to redirect it to fetch from somewhere else (no config injection surface).
+- **Trust boundary**: the private signing key never leaves two places — this machine's
+  `%USERPROFILE%\.cozyverse-updater.key` (dev-only, gitignored) and, for the release workflow, a
+  GitHub Actions **encrypted repository secret** (`TAURI_SIGNING_PRIVATE_KEY`, plus
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key is later re-generated with a password). It is
+  never embedded in the shipped app — only the **public** key is, and only the public key can be
+  derived from it. A compromised end-user machine learns nothing that helps forge an update.
+- **CI posture for the release workflow**: separate from `build.yml`, triggered only on pushing a
+  version tag (`v*`), not on every push — cutting a release is a deliberate act, not a side effect
+  of merging. Uses the default `GITHUB_TOKEN` scoped to `contents: write` (needed to create the
+  Release + upload assets) and nothing broader. Secrets are only ever available to a same-repo tag
+  push, never to a PR built from a fork.
+- **What ships in the app**: only the public key (`tauri.conf.json`'s `plugins.updater.pubkey`) and
+  the fixed endpoint URL. No way to disable signature verification exists in a release build — the
+  plugin always verifies before installing.
+- **Residual risk accepted**: this is signed-artifact integrity (minisign signature checked before
+  install), not a full reproducible-build/SLSA-3 attested pipeline — a reasonable bar for a solo
+  project shipping from GitHub-hosted runners; revisit if this ever needs to satisfy an org's
+  supply-chain policy.
+
+## What's wired now
+
+- `tauri.conf.json` has a `plugins.updater` block with the public key above and the GitHub Releases
+  endpoint.
+- `@tauri-apps/plugin-updater` (JS) + `tauri-plugin-updater` (Rust) are registered.
+- Settings has a "Check for Updates" action that calls the plugin's `check()`, and — only if an
+  update is found — a confirmation before `downloadAndInstall()` runs (never silent/automatic).
+- `.github/workflows/release.yml` builds, signs (via the two `TAURI_SIGNING_PRIVATE_KEY*` secrets
+  you still need to add in GitHub → Settings → Secrets), and publishes a GitHub Release with the
+  installer + `latest.json` + `.sig` files, on every `v*` tag push.
+
+## What you still need to do
+
+1. Add `TAURI_SIGNING_PRIVATE_KEY` as a GitHub Actions repo secret — the contents of
+   `%USERPROFILE%\.cozyverse-updater.key`. (Add `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` too, only if
+   you regenerate the key with a password — the current one has none.)
+2. Push a `v0.2.0` tag (or whatever the next real version is) to cut the first signed release and
+   confirm the workflow produces a working `latest.json`.
+3. From then on, every future release just needs `git tag vX.Y.Z && git push --tags`.

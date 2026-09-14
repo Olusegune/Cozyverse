@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Core permissions for the main window — event listen/emit for the native menu bridge, plus the standard core defaults.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default"]
+  "permissions": ["core:default", "core:event:default", "updater:default", "process:default"]
 }
